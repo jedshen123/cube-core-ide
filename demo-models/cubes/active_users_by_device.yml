@@ -1,0 +1,36 @@
+cubes:
+  - name: active_users_by_device
+    title: 按设备活跃用户数
+    description: 用户按设备型号分层的社区活跃数据
+    ai_context:
+      - role: system
+        content: |
+          查询设备型号时用 LIKE '%Air1%' 模糊匹配。
+          moment_act_flag = '1' 表示有效活跃行为。
+
+    measures:
+      - name: active_user_count
+        title: 活跃用户数
+        description: 去重后的活跃用户数
+        type: count_distinct
+        sql: user_id
+        ai_context:
+          - content: 查询时必须用 MEASURE(active_user_count) 包裹
+
+    dimensions:
+      - name: event_date
+        title: 事件日期
+        type: time
+        sql: event_date
+
+      - name: devices_model
+        title: 设备型号
+        type: string
+        sql: devices_model
+        ai_context:
+          - content: 查询时用 LIKE '%{value}%' 匹配，不要精确等于
+
+      - name: moment_act_flag
+        title: 活跃标记
+        type: string
+        sql: moment_act_flag

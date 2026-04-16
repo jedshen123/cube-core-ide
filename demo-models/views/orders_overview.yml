@@ -1,0 +1,11 @@
+views:
+  - name: orders_overview
+    title: 订单概览
+    description: 面向运营的订单数据视图
+    cubes:
+      - join_path: orders
+        includes:
+          - total_amount
+          - order_count
+          - created_at
+          - status

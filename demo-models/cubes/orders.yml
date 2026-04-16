@@ -1,0 +1,35 @@
+cubes:
+  - name: orders
+    title: 订单数据
+    description: 电商订单核心数据
+    ai_context:
+      - role: system
+        content: |
+          这个 Cube 记录了电商订单数据。
+          "amount" 字段是含税金额，"status" 为 'completed' 才代表已成交。
+
+    measures:
+      - name: total_amount
+        title: 销售额
+        description: 订单含税总金额
+        type: number
+        sql: amount
+        ai_context:
+          - content: 订单金额，含税，单位为元。
+
+      - name: order_count
+        title: 订单数
+        type: count
+
+    dimensions:
+      - name: created_at
+        title: 下单时间
+        type: time
+        sql: created_at
+
+      - name: status
+        title: 订单状态
+        type: string
+        sql: status
+        ai_context:
+          - content: completed=已成交，cancelled=已取消，pending=待支付
