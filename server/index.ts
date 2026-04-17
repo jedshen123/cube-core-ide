@@ -8,7 +8,8 @@ import chokidar from "chokidar";
 import YAML from "yaml";
 import { createServer } from "http";
 
-const PORT = process.env.PORT || 4001;
+const PORT = Number(process.env.PORT) || 4001;
+const HOST = process.env.HOST || "0.0.0.0";
 const HOT_RELOAD_DIR = process.env.CUBE_HOT_RELOAD_DIR || path.resolve(process.cwd(), "../demo-models");
 
 const app = express();
@@ -153,7 +154,7 @@ watcher
   .on("add", (filePath) => broadcast("file:added", filePath))
   .on("unlink", (filePath) => broadcast("file:deleted", filePath));
 
-httpServer.listen(PORT, () => {
-  console.log(`Cube Core IDE server running on http://localhost:${PORT}`);
+httpServer.listen(PORT, HOST, () => {
+  console.log(`Cube Core IDE server listening on http://${HOST}:${PORT}`);
   console.log(`Hot reload dir: ${HOT_RELOAD_DIR}`);
 });
