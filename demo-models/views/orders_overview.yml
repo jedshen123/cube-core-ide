@@ -9,3 +9,4 @@ views:
           - order_count
           - created_at
           - status
+          - aaa

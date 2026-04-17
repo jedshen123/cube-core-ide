@@ -42,9 +42,14 @@ body {
   word-break: break-all;
 }
 
-.create-btn {
-  width: 100%;
+.sidebar-actions {
+  display: flex;
+  gap: 6px;
   margin-top: 12px;
+}
+
+.create-btn {
+  flex: 1;
   padding: 6px 10px;
   font-size: 12px;
   background: #238636;
@@ -56,6 +61,17 @@ body {
 
 .create-btn:hover {
   background: #2ea043;
+}
+
+.create-btn--secondary {
+  background: #30363d;
+  color: #c9d1d9;
+  flex: 0 0 auto;
+  padding: 6px 12px;
+}
+
+.create-btn--secondary:hover {
+  background: #3b424a;
 }
 
 .file-tree {
@@ -176,6 +192,74 @@ body {
 .editor-container {
   flex: 1;
   position: relative;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.editor-container--split {
+  min-height: 0;
+}
+
+.editor-split {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  gap: 1px;
+  background: #30363d;
+}
+
+.editor-pane {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: #0d1117;
+}
+
+.editor-pane--preview {
+  background: #010409;
+}
+
+.pane-header {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #8b949e;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  border-bottom: 1px solid #21262d;
+  background: #161b22;
+}
+
+.pane-body {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+.preview-yaml-error {
+  height: 100%;
+  padding: 16px;
+  overflow: auto;
+  font-size: 12px;
+}
+
+.preview-yaml-error-title {
+  color: #f85149;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.preview-yaml-error-msg {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #8b949e;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.5;
 }
 
 .empty-state {

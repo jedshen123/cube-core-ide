@@ -132,7 +132,7 @@ app.delete("/api/files/*", async (req, res) => {
 });
 
 // File watcher + WebSocket broadcast
-const watcher = chokidar.watch(`${HOT_RELOAD_DIR}/**/*.yml`, {
+const watcher = chokidar.watch([`${HOT_RELOAD_DIR}/**/*.yml`, `${HOT_RELOAD_DIR}/**/*.yaml`], {
   ignored: /node_modules/,
   persistent: true,
   ignoreInitial: true,

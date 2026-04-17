@@ -1,0 +1,83 @@
+cubes:
+  - name: app_user_flags
+    sql_table: dwd_app_user_flag_info
+    dimensions:
+      - name: id
+        sql: "CONCAT(CAST(event_date AS VARCHAR), '-', uid)"
+        type: string
+        primary_key: true
+      - name: uid
+        sql: uid
+        type: string
+      - name: event_date
+        sql: event_date
+        type: time
+      - name: moment_act_flag
+        sql: moment_act_flag
+        type: string
+        title: "社区活跃标识"
+        description: |
+          判断社区是否活跃
+          可选值：1(活跃,表示有发帖、点赞、评论等行为)、0(不活跃)
+    joins:
+      - name: user_devices
+        relationship: one_to_many
+        sql: "{CUBE}.uid = {user_devices.uid}"
+    measures:
+      - name: active_user_count
+        type: count_distinct
+        sql: "{CUBE}.uid"
+        filters:
+          - sql: |
+              (
+                {user_devices.status} = 1 
+                AND {user_devices.create_time} <= {CUBE}.event_date
+              ) 
+              OR 
+              (
+                {user_devices.status} = 2 
+                AND {user_devices.update_time} >= {CUBE}.event_date 
+                AND {user_devices.create_time} <= {CUBE}.event_date
+              )
+        meta:
+          ai_context: >
+            统计事件日期当天与用户设备有效关联的独立用户数。
+            查询时必须用 MEASURE(active_user_count)，不要再写 CASE WHEN。
+
+  - name: user_devices
+    sql_table: dwd_usr_t_lute_user_device_df
+    dimensions:
+      - name: id
+        sql: "CONCAT(uid, '-', deviceid)"
+        type: string
+        primary_key: true
+      - name: uid
+        sql: uid
+        type: string
+      - name: deviceid
+        sql: deviceid
+        type: string
+      - name: create_time
+        sql: create_time
+        type: time
+      - name: update_time
+        sql: update_time
+        type: time
+      - name: status
+        sql: status
+        type: number
+    joins:
+      - name: devices
+        relationship: many_to_one
+        sql: "{CUBE}.deviceid = {devices.id}"
+
+  - name: devices
+    sql_table: dwd_usr_t_device_df
+    dimensions:
+      - name: id
+        sql: id
+        type: string
+        primary_key: true
+      - name: model
+        sql: model
+        type: string
