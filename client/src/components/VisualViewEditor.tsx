@@ -228,6 +228,9 @@ export function VisualViewEditor({ content, viewIndex, onViewIndexChange, onChan
           <code>join_path</code> 支持链式路径（如 <code>app_user_flags.user_devices.devices</code>），末段即为目标 cube。
           <code>includes</code> 下方的标签区从该 cube 的 <code>dimensions</code> 与 <code>measures</code> 补全。
         </p>
+        {form.cubes.length > 0 && (
+          <ListHeader columns={['join_path']} variant="single" />
+        )}
         {form.cubes.map((row, i) => (
           <CubeRefCard
             key={i}
@@ -267,6 +270,33 @@ export function VisualViewEditor({ content, viewIndex, onViewIndexChange, onChan
           + 添加 cube 引用
         </button>
       </section>
+    </div>
+  );
+}
+
+function ListHeader({
+  columns,
+  variant = 'default',
+}: {
+  columns: string[];
+  variant?: 'default' | 'two' | 'single';
+}) {
+  const fieldsClass = `visual-list-header-fields visual-card-summary-fields${
+    variant === 'two'
+      ? ' visual-card-summary-fields--two'
+      : variant === 'single'
+        ? ' visual-card-summary-fields--single'
+        : ''
+  }`;
+  return (
+    <div className="visual-list-header">
+      <span className="visual-list-header-index">#</span>
+      <div className={fieldsClass}>
+        {columns.map((c) => (
+          <span key={c} className="visual-list-header-cell">{c}</span>
+        ))}
+      </div>
+      <span className="visual-list-header-action" aria-hidden />
     </div>
   );
 }
@@ -330,7 +360,7 @@ function CubeRefCard({ index, row, cubeIndex, expanded, onToggle, onChange, onDe
           <span className="visual-card-chevron">{expanded ? '▾' : '▸'}</span>
           <span className="visual-card-index">#{index + 1}</span>
         </button>
-        <div className="visual-card-summary-fields">
+        <div className="visual-card-summary-fields visual-card-summary-fields--single">
           <input
             className="visual-input visual-input--compact"
             placeholder="join_path（如 app_user_flags.user_devices.devices）"

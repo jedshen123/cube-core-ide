@@ -3,11 +3,57 @@ const API_BASE = '/api';
 export interface FileInfo {
   path: string;
   name: string;
-  type: 'cube' | 'view' | 'unknown';
+  type: 'cube' | 'view' | 'table' | 'unknown';
+}
+
+export interface CubeCatalogEntry {
+  path: string;
+  fileName: string;
+  index: number;
+  name: string;
+  title: string;
+  description: string;
+  sql_table: string;
+  extends: string;
+}
+
+export interface ViewCatalogEntry {
+  path: string;
+  fileName: string;
+  index: number;
+  name: string;
+  title: string;
+  description: string;
+  cubes: string[];
+}
+
+export interface TableCatalogEntry {
+  path: string;
+  fileName: string;
+  name: string;
+  title: string;
+  description: string;
+  sql_table: string;
+  schema: string;
+  database: string;
+  fieldCount: number;
+}
+
+export interface CatalogResponse {
+  cubes: CubeCatalogEntry[];
+  views: ViewCatalogEntry[];
+  tables: TableCatalogEntry[];
+  errors: { path: string; error: string }[];
 }
 
 export async function listFiles(): Promise<FileInfo[]> {
   const res = await fetch(`${API_BASE}/files`);
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function listCatalog(): Promise<CatalogResponse> {
+  const res = await fetch(`${API_BASE}/catalog`);
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
@@ -35,4 +81,43 @@ export async function deleteFile(path: string): Promise<void> {
     method: 'DELETE',
   });
   if (!res.ok) throw new Error(await res.text());
+}
+
+export interface StarRocksConfigInfo {
+  host: string;
+  port: number;
+  user: string;
+  database: string;
+  hasPassword: boolean;
+}
+
+export interface StarRocksSyncResult {
+  added: { name: string; path: string; fields: number }[];
+  skipped: { name: string; reason: string }[];
+  total: number;
+  database: string;
+}
+
+export async function getStarRocksConfig(): Promise<StarRocksConfigInfo> {
+  const res = await fetch(`${API_BASE}/starrocks/config`);
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function syncStarRocksTables(): Promise<StarRocksSyncResult> {
+  const res = await fetch(`${API_BASE}/starrocks/sync`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  if (!res.ok) {
+    let msg = '同步失败';
+    try {
+      const data = await res.json();
+      msg = data.error || msg;
+    } catch {
+      // ignore
+    }
+    throw new Error(msg);
+  }
+  return res.json();
 }

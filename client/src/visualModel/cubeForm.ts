@@ -6,12 +6,18 @@ import {
   stringifyDoc,
 } from '../modelYaml';
 
+export type MeasureFilterForm = {
+  sql: string;
+};
+
 export type MeasureFormRow = {
   name: string;
   title: string;
   description: string;
   type: string;
   sql: string;
+  /** 对应 YAML：`filters`，数组项 `{ sql: string }` */
+  filters: MeasureFilterForm[];
   /** 对应 YAML：`meta.ai_context`（多行字符串，CubeCore 标准） */
   metaAiContext: string;
 };
@@ -86,12 +92,21 @@ export function cubeToFormState(cube: Record<string, unknown>): CubeFormState {
 }
 
 function measureToFormRow(m: Record<string, unknown>): MeasureFormRow {
+  const rawFilters = Array.isArray(m.filters) ? (m.filters as unknown[]) : [];
+  const filters: MeasureFilterForm[] = rawFilters.map((f) => {
+    if (f && typeof f === 'object' && 'sql' in (f as Record<string, unknown>)) {
+      return { sql: str((f as Record<string, unknown>).sql) };
+    }
+    if (typeof f === 'string') return { sql: f };
+    return { sql: '' };
+  });
   return {
     name: str(m.name),
     title: str(m.title),
     description: str(m.description),
     type: str(m.type),
     sql: str(m.sql),
+    filters,
     metaAiContext: metaAiContextToFormString(m),
   };
 }
@@ -136,6 +151,21 @@ function mergeMeasure(old: Record<string, unknown> | undefined, row: MeasureForm
   else delete next.type;
   if (sql) next.sql = sql;
   else delete next.sql;
+
+  const oldFilters = Array.isArray(old?.filters) ? (old!.filters as unknown[]) : [];
+  const filters: Record<string, unknown>[] = [];
+  row.filters.forEach((f, i) => {
+    const sqlText = f.sql.trim();
+    if (!sqlText) return;
+    const prev = oldFilters[i];
+    const base: Record<string, unknown> =
+      prev && typeof prev === 'object' && !Array.isArray(prev) ? { ...(prev as Record<string, unknown>) } : {};
+    base.sql = f.sql;
+    filters.push(base);
+  });
+  if (filters.length > 0) next.filters = filters;
+  else delete next.filters;
+
   next = applyMetaAiContextString(next, row.metaAiContext);
   return next;
 }

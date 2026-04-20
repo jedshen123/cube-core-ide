@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { parseCubeFile } from '../modelYaml';
 import {
   applyCubeFormToContent,
@@ -24,6 +24,7 @@ const emptyMeasure = (): MeasureFormRow => ({
   description: '',
   type: '',
   sql: '',
+  filters: [],
   metaAiContext: '',
 });
 
@@ -42,6 +43,50 @@ const emptyJoin = (): JoinFormRow => ({
   relationship: '',
   sql: '',
 });
+
+function SqlInput({
+  value,
+  onChange,
+  placeholder,
+  minRowsFocused = 5,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  minRowsFocused?: number;
+}) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  const [focused, setFocused] = useState(false);
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    const h = el.scrollHeight;
+    el.style.height = `${h}px`;
+  }, [value, focused]);
+
+  return (
+    <textarea
+      ref={ref}
+      className={`visual-input visual-input--mono visual-input--sql ${focused ? 'is-focused' : ''}`}
+      value={value}
+      placeholder={placeholder}
+      spellCheck={false}
+      rows={focused ? minRowsFocused : 1}
+      onChange={(e) => onChange(e.target.value)}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+      onKeyDown={(e) => {
+        // Allow Enter to create newlines (default textarea behavior).
+        // Use Ctrl/Cmd+Enter to blur-finish like a shortcut.
+        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+          (e.currentTarget as HTMLTextAreaElement).blur();
+        }
+      }}
+    />
+  );
+}
 
 function MetaAiField({
   label,
@@ -189,11 +234,10 @@ export function VisualCubeEditor({ content, cubeIndex, onCubeIndexChange, onChan
             />
           </Field>
           <Field label="sql（可选）">
-            <input
-              className="visual-input"
+            <SqlInput
               value={form.sql}
-              onChange={(e) => patch({ ...form, sql: e.target.value })}
-              placeholder="与 sql_table 二选一或留空"
+              onChange={(v) => patch({ ...form, sql: v })}
+              placeholder="与 sql_table 二选一或留空；支持换行，多行会写成 YAML 的 |"
             />
           </Field>
           <Field label="description" className="visual-grid-span2">
@@ -218,6 +262,9 @@ export function VisualCubeEditor({ content, cubeIndex, onCubeIndexChange, onChan
 
       <section className="visual-section">
         <h3 className="visual-section-title">Dimensions</h3>
+        {form.dimensions.length > 0 && (
+          <ListHeader columns={['name', 'title', 'type']} />
+        )}
         {form.dimensions.map((row, i) => {
           const expanded = !!dimExpanded[i];
           const toggle = () =>
@@ -280,14 +327,14 @@ export function VisualCubeEditor({ content, cubeIndex, onCubeIndexChange, onChan
                 <div className="visual-card-body">
                   <div className="visual-grid">
                     <Field label="sql">
-                      <input
-                        className="visual-input"
+                      <SqlInput
                         value={row.sql}
-                        onChange={(e) => {
+                        onChange={(v) => {
                           const d = [...form.dimensions];
-                          d[i] = { ...row, sql: e.target.value };
+                          d[i] = { ...row, sql: v };
                           patch({ ...form, dimensions: d });
                         }}
+                        placeholder="列表达式，可多行"
                       />
                     </Field>
                     <Field label="primary_key">
@@ -350,6 +397,9 @@ export function VisualCubeEditor({ content, cubeIndex, onCubeIndexChange, onChan
         <p className="visual-section-hint">
           未在表单中编辑的字段（如 <code>filters</code>、<code>meta</code> 中除 <code>ai_context</code> 外的键）会从原 YAML 保留。
         </p>
+        {form.measures.length > 0 && (
+          <ListHeader columns={['name', 'title', 'type']} />
+        )}
         {form.measures.map((row, i) => {
           const expanded = !!measureExpanded[i];
           const toggle = () =>
@@ -412,14 +462,14 @@ export function VisualCubeEditor({ content, cubeIndex, onCubeIndexChange, onChan
                 <div className="visual-card-body">
                   <div className="visual-grid">
                     <Field label="sql" className="visual-grid-span2">
-                      <input
-                        className="visual-input"
+                      <SqlInput
                         value={row.sql}
-                        onChange={(e) => {
+                        onChange={(v) => {
                           const m = [...form.measures];
-                          m[i] = { ...row, sql: e.target.value };
+                          m[i] = { ...row, sql: v };
                           patch({ ...form, measures: m });
                         }}
+                        placeholder="聚合/列表达式，可多行"
                       />
                     </Field>
                     <Field label="description" className="visual-grid-span2">
@@ -434,6 +484,57 @@ export function VisualCubeEditor({ content, cubeIndex, onCubeIndexChange, onChan
                         rows={2}
                       />
                     </Field>
+                    <div className="visual-field visual-grid-span2">
+                      <label className="visual-label">filters（多条件 AND）</label>
+                      <p className="visual-meta-ai-hint">
+                        每条对应 YAML <code>filters</code> 下的 <code>sql</code>。示例：
+                        <code>{"{CUBE}.status = 'completed'"}</code>。
+                      </p>
+                      {row.filters.length === 0 && (
+                        <p className="visual-muted">暂无 filter，下方可添加。</p>
+                      )}
+                      {row.filters.map((f, fi) => (
+                        <div key={fi} className="visual-filter-row">
+                          <span className="visual-filter-index">#{fi + 1}</span>
+                          <div className="visual-filter-input">
+                            <SqlInput
+                              value={f.sql}
+                              onChange={(v) => {
+                                const m = [...form.measures];
+                                const fs = [...row.filters];
+                                fs[fi] = { ...f, sql: v };
+                                m[i] = { ...row, filters: fs };
+                                patch({ ...form, measures: m });
+                              }}
+                              placeholder="SQL 条件，如 {CUBE}.status = 'completed'；支持多行"
+                              minRowsFocused={6}
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            className="visual-btn-danger visual-btn-danger--sm"
+                            onClick={() => {
+                              const m = [...form.measures];
+                              m[i] = { ...row, filters: row.filters.filter((_, j) => j !== fi) };
+                              patch({ ...form, measures: m });
+                            }}
+                          >
+                            删除
+                          </button>
+                        </div>
+                      ))}
+                      <button
+                        type="button"
+                        className="visual-btn-add visual-btn-add--sm"
+                        onClick={() => {
+                          const m = [...form.measures];
+                          m[i] = { ...row, filters: [...row.filters, { sql: '' }] };
+                          patch({ ...form, measures: m });
+                        }}
+                      >
+                        + 添加 filter
+                      </button>
+                    </div>
                   </div>
                   <MetaAiField
                     label="meta.ai_context"
@@ -465,6 +566,9 @@ export function VisualCubeEditor({ content, cubeIndex, onCubeIndexChange, onChan
 
       <section className="visual-section">
         <h3 className="visual-section-title">Joins</h3>
+        {form.joins.length > 0 && (
+          <ListHeader columns={['name', 'relationship']} variant="two" />
+        )}
         {form.joins.map((row, i) => {
           const expanded = !!joinExpanded[i];
           const toggle = () =>
@@ -517,15 +621,14 @@ export function VisualCubeEditor({ content, cubeIndex, onCubeIndexChange, onChan
                 <div className="visual-card-body">
                   <div className="visual-grid">
                     <Field label="sql" className="visual-grid-span2">
-                      <textarea
-                        className="visual-textarea visual-textarea--sm"
+                      <SqlInput
                         value={row.sql}
-                        onChange={(e) => {
+                        onChange={(v) => {
                           const j = [...form.joins];
-                          j[i] = { ...row, sql: e.target.value };
+                          j[i] = { ...row, sql: v };
                           patch({ ...form, joins: j });
                         }}
-                        rows={3}
+                        placeholder="连接条件，可多行"
                       />
                     </Field>
                   </div>
@@ -545,6 +648,33 @@ export function VisualCubeEditor({ content, cubeIndex, onCubeIndexChange, onChan
           + 添加 join
         </button>
       </section>
+    </div>
+  );
+}
+
+function ListHeader({
+  columns,
+  variant = 'default',
+}: {
+  columns: string[];
+  variant?: 'default' | 'two' | 'single';
+}) {
+  const fieldsClass = `visual-list-header-fields visual-card-summary-fields${
+    variant === 'two'
+      ? ' visual-card-summary-fields--two'
+      : variant === 'single'
+        ? ' visual-card-summary-fields--single'
+        : ''
+  }`;
+  return (
+    <div className="visual-list-header">
+      <span className="visual-list-header-index">#</span>
+      <div className={fieldsClass}>
+        {columns.map((c) => (
+          <span key={c} className="visual-list-header-cell">{c}</span>
+        ))}
+      </div>
+      <span className="visual-list-header-action" aria-hidden />
     </div>
   );
 }

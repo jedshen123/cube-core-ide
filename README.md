@@ -54,6 +54,31 @@ CUBE_HOT_RELOAD_DIR=/path/to/your/models npm run dev
 
 Or modify the `dev:server` script in `package.json`.
 
+## StarRocks 同步
+
+在 Tables 页面右上角点击 **同步数据**，后端会读取配置的 StarRocks 数据库元信息，为所有在本地尚未配置的物理表自动生成 `tables/<name>.yml`（包含 `name`、`title`、`description` 取自表 comment，字段列表取自 `information_schema.columns`）。
+
+通过环境变量配置 StarRocks 连接：
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `STARROCKS_HOST` | `127.0.0.1` | StarRocks FE 主机 |
+| `STARROCKS_PORT` | `9030` | MySQL 协议端口 |
+| `STARROCKS_USER` | `root` | 用户名 |
+| `STARROCKS_PASSWORD` | `` | 密码 |
+| `STARROCKS_DATABASE` | `` | **必填**，要同步的数据库名 |
+
+示例：
+
+```bash
+STARROCKS_HOST=10.0.0.12 \
+STARROCKS_PORT=9030 \
+STARROCKS_USER=analytics \
+STARROCKS_PASSWORD=secret \
+STARROCKS_DATABASE=dwd \
+npm run dev
+```
+
 ## API Endpoints
 
 | Method | Endpoint | Description |
@@ -62,6 +87,8 @@ Or modify the `dev:server` script in `package.json`.
 | GET | `/api/files/:path` | Read a file |
 | POST | `/api/files/:path` | Write a file (with YAML validation) |
 | DELETE | `/api/files/:path` | Delete a file |
+| GET | `/api/starrocks/config` | StarRocks 连接信息（不含密码） |
+| POST | `/api/starrocks/sync` | 同步 StarRocks 元信息到本地 `tables/*.yml` |
 | WS | `/ws` | WebSocket for file change notifications |
 
 ## Usage Example

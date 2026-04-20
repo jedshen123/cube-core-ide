@@ -1,0 +1,47 @@
+table:
+  name: orders_raw
+  title: 订单原始表
+  description: 电商订单原始数据，供 cube 构建使用
+  schema: public
+  database: analytics
+  sql_table: public.orders
+  meta:
+    ai_context: |
+      这个物理表记录下单原始行。
+      amount 含税；status='completed' 才算已成交。
+  fields:
+    - name: id
+      title: 订单 ID
+      description: 订单主键
+      data_type: bigint
+      nullable: false
+      primary_key: true
+
+    - name: user_id
+      title: 用户 ID
+      description: 关联 users.id
+      data_type: bigint
+      nullable: false
+
+    - name: amount
+      title: 订单金额
+      description: 含税金额，单位元
+      data_type: decimal(18,2)
+      nullable: false
+      meta:
+        ai_context: |
+          订单金额，含税，单位为元。
+
+    - name: status
+      title: 订单状态
+      description: completed/cancelled/pending
+      data_type: varchar(32)
+      nullable: false
+      meta:
+        ai_context: |
+          completed=已成交，cancelled=已取消，pending=待支付。
+
+    - name: created_at
+      title: 下单时间
+      data_type: timestamp
+      nullable: false

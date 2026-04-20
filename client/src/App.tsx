@@ -2,14 +2,24 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Editor from '@monaco-editor/react';
 import YAML from 'yaml';
 import * as api from './api';
-import type { FileInfo } from './api';
+import type {
+  CatalogResponse,
+  CubeCatalogEntry,
+  FileInfo,
+  TableCatalogEntry,
+  ViewCatalogEntry,
+} from './api';
 import { VisualCubeEditor } from './components/VisualCubeEditor';
+import { VisualTableEditor } from './components/VisualTableEditor';
 import { VisualViewEditor } from './components/VisualViewEditor';
+import { CatalogPage, type CatalogSection } from './components/CatalogPage';
 import {
   downloadTextFile,
   extractCubesFromText,
+  extractTablesFromText,
   extractViewsFromText,
   parseCubeFile,
+  parseTableFile,
   parseViewFile,
   pickYamlFile,
   sanitizeFilename,
@@ -31,6 +41,8 @@ function yamlPreviewFromSource(source: string): { ok: true; text: string } | { o
   }
 }
 
+type ViewMode = 'catalog' | 'detail';
+
 function App() {
   const [files, setFiles] = useState<FileInfo[]>([]);
   const [activePath, setActivePath] = useState<string | null>(null);
@@ -42,8 +54,65 @@ function App() {
   const [editMode, setEditMode] = useState<'source' | 'visual'>('source');
   const [cubeIndex, setCubeIndex] = useState(0);
   const [viewIndex, setViewIndex] = useState(0);
+  const [sidebarWidth, setSidebarWidth] = useState<number>(220);
+  const [editorLeftPct, setEditorLeftPct] = useState<number>(50);
+  const [isResizing, setIsResizing] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>('catalog');
+  const [section, setSection] = useState<CatalogSection>('cube');
+  const [catalog, setCatalog] = useState<CatalogResponse | null>(null);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [syncingTables, setSyncingTables] = useState(false);
+  const [previewCollapsed, setPreviewCollapsed] = useState(true);
   const wsRef = useRef<WebSocket | null>(null);
   const hotReloadTimerRef = useRef<number | null>(null);
+  const editorSplitRef = useRef<HTMLDivElement>(null);
+
+  const startSidebarDrag = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = sidebarWidth;
+    const onMove = (ev: PointerEvent) => {
+      const w = Math.max(180, Math.min(400, startWidth + ev.clientX - startX));
+      setSidebarWidth(w);
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      setIsResizing(false);
+    };
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    setIsResizing(true);
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  };
+
+  const startEditorSplitDrag = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const container = editorSplitRef.current;
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
+    const min = 240;
+    const onMove = (ev: PointerEvent) => {
+      const x = Math.max(min, Math.min(rect.width - min, ev.clientX - rect.left));
+      setEditorLeftPct((x / rect.width) * 100);
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      setIsResizing(false);
+    };
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    setIsResizing(true);
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  };
 
   const activeFile = useMemo(
     () => files.find((f) => f.path === activePath),
@@ -55,16 +124,17 @@ function App() {
     const p = activePath?.replace(/\\/g, '/') ?? '';
     if (p.includes('/cubes/') || p.startsWith('cubes/')) return 'cube';
     if (p.includes('/views/') || p.startsWith('views/')) return 'view';
+    if (p.includes('/tables/') || p.startsWith('tables/')) return 'table';
     return 'unknown';
   }, [activeFile?.type, activePath]);
 
-  const showYamlPreview = effectiveFileType === 'cube' || effectiveFileType === 'view';
+  const showYamlPreview =
+    effectiveFileType === 'cube' || effectiveFileType === 'view' || effectiveFileType === 'table';
 
   const yamlPreview = useMemo(() => yamlPreviewFromSource(content), [content]);
 
   const isUnsaved = content !== originalContent;
 
-  // Load file list
   const refreshFiles = async () => {
     try {
       const list = await api.listFiles();
@@ -74,12 +144,64 @@ function App() {
     }
   };
 
+  const refreshCatalog = async () => {
+    setCatalogLoading(true);
+    setCatalogError(null);
+    try {
+      const data = await api.listCatalog();
+      setCatalog(data);
+    } catch (e: any) {
+      setCatalogError(e.message);
+    } finally {
+      setCatalogLoading(false);
+    }
+  };
+
+  const syncTablesFromStarRocks = async () => {
+    if (syncingTables) return;
+    setSyncingTables(true);
+    setError(null);
+    try {
+      const result = await api.syncStarRocksTables();
+      await refreshFiles();
+      await refreshCatalog();
+      const addedCount = result.added.length;
+      const skippedCount = result.skipped.length;
+      const lines = [
+        `同步完成（数据库：${result.database || '—'}，共 ${result.total} 张表）`,
+        `新增 ${addedCount} 张：${
+          addedCount ? result.added.map((a) => a.name).join(', ') : '—'
+        }`,
+        `跳过 ${skippedCount} 张${
+          skippedCount ? `：\n${result.skipped.map((s) => `  · ${s.name}（${s.reason}）`).join('\n')}` : ''
+        }`,
+      ];
+      alert(lines.join('\n'));
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setSyncingTables(false);
+    }
+  };
+
   useEffect(() => {
     refreshFiles();
+    refreshCatalog();
   }, []);
 
-  // Open file
-  const openFile = async (path: string) => {
+  const goToCatalog = () => {
+    if (isUnsaved) {
+      const ok = confirm('当前文件未保存，切换将丢失修改，确认继续？');
+      if (!ok) return;
+    }
+    setViewMode('catalog');
+    setActivePath(null);
+    setContent('');
+    setOriginalContent('');
+    refreshCatalog();
+  };
+
+  const openFile = async (path: string, opts?: { cubeIndex?: number; viewIndex?: number }) => {
     if (isUnsaved) {
       const ok = confirm('当前文件未保存，切换将丢失修改，确认继续？');
       if (!ok) return;
@@ -92,16 +214,20 @@ function App() {
       setOriginalContent(data.content);
       const fileMeta = files.find((f) => f.path === path);
       const p = path.replace(/\\/g, '/');
-      const isCubeOrView =
+      const isStructured =
         fileMeta?.type === 'cube' ||
         fileMeta?.type === 'view' ||
+        fileMeta?.type === 'table' ||
         p.includes('/cubes/') ||
         p.startsWith('cubes/') ||
         p.includes('/views/') ||
-        p.startsWith('views/');
-      setEditMode(isCubeOrView ? 'visual' : 'source');
-      setCubeIndex(0);
-      setViewIndex(0);
+        p.startsWith('views/') ||
+        p.includes('/tables/') ||
+        p.startsWith('tables/');
+      setEditMode(isStructured ? 'visual' : 'source');
+      setCubeIndex(opts?.cubeIndex ?? 0);
+      setViewIndex(opts?.viewIndex ?? 0);
+      setViewMode('detail');
       setError(null);
     } catch (e: any) {
       setError(e.message);
@@ -110,7 +236,19 @@ function App() {
     }
   };
 
-  // Save file
+  const handleOpenCube = (entry: CubeCatalogEntry) => {
+    setSection('cube');
+    openFile(entry.path, { cubeIndex: entry.index });
+  };
+  const handleOpenView = (entry: ViewCatalogEntry) => {
+    setSection('view');
+    openFile(entry.path, { viewIndex: entry.index });
+  };
+  const handleOpenTable = (entry: TableCatalogEntry) => {
+    setSection('table');
+    openFile(entry.path);
+  };
+
   const saveFile = async () => {
     if (!activePath) return;
     setLoading(true);
@@ -118,6 +256,7 @@ function App() {
       await api.writeFile(activePath, content);
       setOriginalContent(content);
       setError(null);
+      refreshCatalog();
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -125,7 +264,6 @@ function App() {
     }
   };
 
-  // Export current cube/view as standalone YAML file
   const exportCurrent = () => {
     if (effectiveFileType === 'cube') {
       const parsed = parseCubeFile(content);
@@ -159,12 +297,22 @@ function App() {
       downloadTextFile(`${sanitizeFilename(name, 'view')}.yml`, stringifyDoc({ views: [view] }));
       return;
     }
+    if (effectiveFileType === 'table') {
+      const parsed = parseTableFile(content);
+      if (!parsed.ok) {
+        setError(`导出失败：${parsed.error}`);
+        return;
+      }
+      const table = parsed.table;
+      const name = typeof table.name === 'string' && table.name ? table.name : 'table';
+      downloadTextFile(`${sanitizeFilename(name, 'table')}.yml`, stringifyDoc({ table }));
+      return;
+    }
     if (!activePath) return;
     const fallbackName = (activePath.split('/').pop() || 'file').replace(/\.(ya?ml)$/i, '');
     downloadTextFile(`${sanitizeFilename(fallbackName, 'file')}.yml`, content);
   };
 
-  // Delete file
   const deleteActiveFile = async () => {
     if (!activePath) return;
     const ok = confirm(`确认删除 ${activePath} 吗？`);
@@ -175,29 +323,47 @@ function App() {
       setContent('');
       setOriginalContent('');
       await refreshFiles();
+      await refreshCatalog();
+      setViewMode('catalog');
     } catch (e: any) {
       setError(e.message);
     }
   };
 
-  // Create new file
   const createFile = () => {
-    const name = prompt('请输入文件名（如 cubes/orders.yml）：');
+    const defaultDir =
+      section === 'cube' ? 'cubes/' : section === 'view' ? 'views/' : section === 'table' ? 'tables/' : '';
+    const name = prompt(
+      '请输入文件名（如 cubes/orders.yml、tables/orders_raw.yml）：',
+      defaultDir
+    );
     if (!name) return;
     const path = name.endsWith('.yml') || name.endsWith('.yaml') ? name : `${name}.yml`;
     setActivePath(path);
-    const defaultContent = path.includes('view')
-      ? `views:\n  - name: \n`
-      : `cubes:\n  - name: \n`;
+    const p = path.replace(/\\/g, '/');
+    let defaultContent: string;
+    if (p.startsWith('tables/') || p.includes('/tables/') || p.includes('table')) {
+      defaultContent = `table:\n  name: \n  fields: []\n`;
+    } else if (p.startsWith('views/') || p.includes('/views/') || p.includes('view')) {
+      defaultContent = `views:\n  - name: \n`;
+    } else {
+      defaultContent = `cubes:\n  - name: \n`;
+    }
     setContent(defaultContent);
     setOriginalContent('');
-    const isCubeOrView = path.includes('cubes/') || path.includes('views/') || path.includes('view') || path.includes('cube');
-    setEditMode(isCubeOrView ? 'visual' : 'source');
+    const isStructured =
+      p.includes('cubes/') ||
+      p.includes('views/') ||
+      p.includes('tables/') ||
+      p.includes('view') ||
+      p.includes('cube') ||
+      p.includes('table');
+    setEditMode(isStructured ? 'visual' : 'source');
     setCubeIndex(0);
     setViewIndex(0);
+    setViewMode('detail');
   };
 
-  // Import YAML file: pick local file, detect cube/view, save as new project file
   const importFile = async () => {
     if (isUnsaved) {
       const ok = confirm('当前文件未保存，切换将丢失修改，确认继续？');
@@ -208,19 +374,39 @@ function App() {
 
     const asCube = extractCubesFromText(picked.text);
     const asView = extractViewsFromText(picked.text);
-    let kind: 'cube' | 'view' | 'unknown' = 'unknown';
-    if (asCube.ok && asCube.cubes.length > 0 && !(asView.ok && asView.views.length > 0)) {
-      kind = 'cube';
-    } else if (asView.ok && asView.views.length > 0 && !(asCube.ok && asCube.cubes.length > 0)) {
-      kind = 'view';
-    } else if (asCube.ok && asCube.cubes.length > 0 && asView.ok && asView.views.length > 0) {
-      const pickCube = confirm('文件同时包含 cubes 和 views，点「确定」作为 cube 导入，「取消」作为 view 导入');
-      kind = pickCube ? 'cube' : 'view';
+    const asTable = extractTablesFromText(picked.text);
+    const hasCube = asCube.ok && asCube.cubes.length > 0;
+    const hasView = asView.ok && asView.views.length > 0;
+    const hasTable = asTable.ok && asTable.tables.length > 0;
+    let kind: 'cube' | 'view' | 'table' | 'unknown' = 'unknown';
+    const kinds = [hasCube ? 'cube' : null, hasView ? 'view' : null, hasTable ? 'table' : null].filter(
+      Boolean
+    ) as ('cube' | 'view' | 'table')[];
+    if (kinds.length === 1) {
+      kind = kinds[0];
+    } else if (kinds.length > 1) {
+      const ans = prompt(
+        `文件同时包含多种模型：${kinds.join(', ')}。请输入要导入的类型（cube/view/table）：`,
+        kinds[0]
+      );
+      const normalized = (ans || '').trim().toLowerCase();
+      if (normalized === 'cube' || normalized === 'view' || normalized === 'table') {
+        kind = normalized;
+      } else {
+        kind = kinds[0];
+      }
     }
 
     const baseName = picked.name.replace(/\.(ya?ml)$/i, '');
-    const safeBase = sanitizeFilename(baseName, kind === 'view' ? 'view' : 'cube');
-    const prefix = kind === 'view' ? 'views/' : kind === 'cube' ? 'cubes/' : '';
+    const safeBase = sanitizeFilename(baseName, kind === 'unknown' ? 'file' : kind);
+    const prefix =
+      kind === 'view'
+        ? 'views/'
+        : kind === 'cube'
+        ? 'cubes/'
+        : kind === 'table'
+        ? 'tables/'
+        : '';
     const defaultPath = `${prefix}${safeBase}.yml`;
 
     const destInput = prompt('导入到项目的哪个路径？', defaultPath);
@@ -237,20 +423,25 @@ function App() {
     try {
       await api.writeFile(destPath, picked.text);
       await refreshFiles();
+      await refreshCatalog();
       setActivePath(destPath);
       setContent(picked.text);
       setOriginalContent(picked.text);
       const p = destPath.replace(/\\/g, '/');
-      const isCubeOrView =
+      const isStructured =
         kind === 'cube' ||
         kind === 'view' ||
+        kind === 'table' ||
         p.includes('/cubes/') ||
         p.startsWith('cubes/') ||
         p.includes('/views/') ||
-        p.startsWith('views/');
-      setEditMode(isCubeOrView ? 'visual' : 'source');
+        p.startsWith('views/') ||
+        p.includes('/tables/') ||
+        p.startsWith('tables/');
+      setEditMode(isStructured ? 'visual' : 'source');
       setCubeIndex(0);
       setViewIndex(0);
+      setViewMode('detail');
       setError(null);
     } catch (e: any) {
       setError(e.message);
@@ -259,7 +450,6 @@ function App() {
     }
   };
 
-  // WebSocket hot reload
   useEffect(() => {
     const ws = new WebSocket(`ws://${window.location.host}/ws`);
     wsRef.current = ws;
@@ -278,6 +468,9 @@ function App() {
         if (hotReloadTimerRef.current) window.clearTimeout(hotReloadTimerRef.current);
         hotReloadTimerRef.current = window.setTimeout(() => setHotReloadEvent(null), 3000);
       }
+      if (msg.event === 'file:changed' || msg.event === 'file:added' || msg.event === 'file:deleted') {
+        refreshCatalog();
+      }
       if (msg.event === 'file:added' || msg.event === 'file:deleted') {
         await refreshFiles();
       }
@@ -290,13 +483,27 @@ function App() {
     };
   }, [activePath]);
 
-  const cubes = files.filter((f) => f.type === 'cube');
-  const views = files.filter((f) => f.type === 'view');
-  const others = files.filter((f) => f.type === 'unknown');
+  const cubeCount = catalog?.cubes.length ?? 0;
+  const viewCount = catalog?.views.length ?? 0;
+  const tableCount = catalog?.tables.length ?? 0;
+
+  const handleSelectSection = (s: CatalogSection) => {
+    setSection(s);
+    if (viewMode !== 'catalog') {
+      if (isUnsaved) {
+        const ok = confirm('当前文件未保存，切换将丢失修改，确认继续？');
+        if (!ok) return;
+      }
+      setViewMode('catalog');
+      setActivePath(null);
+      setContent('');
+      setOriginalContent('');
+    }
+  };
 
   return (
     <div className="app">
-      <aside className="sidebar">
+      <aside className="sidebar" style={{ width: sidebarWidth, minWidth: sidebarWidth, maxWidth: sidebarWidth }}>
         <div className="sidebar-header">
           <h1>Cube Core IDE</h1>
           <div className="dir">{import.meta.env.VITE_CUBE_DIR || 'demo-models'}</div>
@@ -307,60 +514,80 @@ function App() {
             </button>
           </div>
         </div>
-        <div className="file-tree">
-          {cubes.length > 0 && (
-            <div className="section">
-              <div className="section-title">Cubes</div>
-              {cubes.map((f) => (
-                <div
-                  key={f.path}
-                  className={`file-item ${activePath === f.path ? 'active' : ''}`}
-                  onClick={() => openFile(f.path)}
-                >
-                  <span className="icon">🧊</span>
-                  {f.name}
-                </div>
-              ))}
+        <nav className="sidebar-nav" aria-label="模型分类">
+          <button
+            type="button"
+            className={`sidebar-nav-item ${viewMode === 'catalog' && section === 'cube' ? 'active' : ''}`}
+            onClick={() => handleSelectSection('cube')}
+          >
+            <span className="sidebar-nav-icon">🧊</span>
+            <span className="sidebar-nav-label">Cubes</span>
+            <span className="sidebar-nav-count">{cubeCount}</span>
+          </button>
+          <button
+            type="button"
+            className={`sidebar-nav-item ${viewMode === 'catalog' && section === 'view' ? 'active' : ''}`}
+            onClick={() => handleSelectSection('view')}
+          >
+            <span className="sidebar-nav-icon">👁</span>
+            <span className="sidebar-nav-label">Views</span>
+            <span className="sidebar-nav-count">{viewCount}</span>
+          </button>
+          <button
+            type="button"
+            className={`sidebar-nav-item ${viewMode === 'catalog' && section === 'table' ? 'active' : ''}`}
+            onClick={() => handleSelectSection('table')}
+          >
+            <span className="sidebar-nav-icon">🗄</span>
+            <span className="sidebar-nav-label">Tables</span>
+            <span className="sidebar-nav-count">{tableCount}</span>
+          </button>
+        </nav>
+        {viewMode === 'detail' && activePath && (
+          <div className="sidebar-current">
+            <div className="sidebar-current-title">当前编辑</div>
+            <div className="sidebar-current-path" title={activePath}>
+              {activePath}
             </div>
-          )}
-          {views.length > 0 && (
-            <div className="section">
-              <div className="section-title">Views</div>
-              {views.map((f) => (
-                <div
-                  key={f.path}
-                  className={`file-item ${activePath === f.path ? 'active' : ''}`}
-                  onClick={() => openFile(f.path)}
-                >
-                  <span className="icon">👁</span>
-                  {f.name}
-                </div>
-              ))}
-            </div>
-          )}
-          {others.length > 0 && (
-            <div className="section">
-              <div className="section-title">Others</div>
-              {others.map((f) => (
-                <div
-                  key={f.path}
-                  className={`file-item ${activePath === f.path ? 'active' : ''}`}
-                  onClick={() => openFile(f.path)}
-                >
-                  <span className="icon">📄</span>
-                  {f.name}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+          </div>
+        )}
       </aside>
 
+      <div
+        className={`resizer resizer--v ${isResizing ? 'is-active' : ''}`}
+        onPointerDown={startSidebarDrag}
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="拖拽以调整侧边栏宽度"
+      />
+
       <main className="main">
-        {activePath ? (
+        {viewMode === 'catalog' ? (
+          <CatalogPage
+            catalog={catalog}
+            loading={catalogLoading}
+            error={catalogError}
+            section={section}
+            onSectionChange={setSection}
+            onOpenCube={handleOpenCube}
+            onOpenView={handleOpenView}
+            onOpenTable={handleOpenTable}
+            onRefresh={refreshCatalog}
+            onSyncTables={syncTablesFromStarRocks}
+            syncing={syncingTables}
+          />
+        ) : activePath ? (
           <>
             <div className="toolbar">
               <div className="toolbar-left">
+                <button
+                  type="button"
+                  className="back-btn"
+                  onClick={goToCatalog}
+                  title="返回列表"
+                >
+                  ← 列表
+                </button>
                 <span className="filename">{activeFile?.name || activePath}</span>
                 <span className={`status ${isUnsaved ? 'unsaved' : ''}`}>
                   {isUnsaved ? '未保存' : '已保存'}
@@ -396,7 +623,7 @@ function App() {
                   disabled={loading || !content}
                   title={
                     showYamlPreview
-                      ? `将当前${effectiveFileType === 'view' ? ' view ' : ' cube '}导出为单独的 YAML 文件`
+                      ? `将当前 ${effectiveFileType} 导出为单独的 YAML 文件`
                       : '将当前文件导出到本地'
                   }
                 >
@@ -408,106 +635,125 @@ function App() {
               </div>
             </div>
             <div className={`editor-container ${showYamlPreview ? 'editor-container--split' : ''}`}>
-              {showYamlPreview && editMode === 'visual' ? (
-                <div className="editor-split">
-                  <div className="editor-pane editor-pane--visual">
-                    <div className="pane-header">可视化</div>
-                    <div className="pane-body pane-body--scroll">
-                      {effectiveFileType === 'cube' && (
-                        <VisualCubeEditor
-                          content={content}
-                          cubeIndex={cubeIndex}
-                          onCubeIndexChange={setCubeIndex}
-                          onChange={setContent}
-                          activePath={activePath}
-                        />
-                      )}
-                      {effectiveFileType === 'view' && (
-                        <VisualViewEditor
-                          content={content}
-                          viewIndex={viewIndex}
-                          onViewIndexChange={setViewIndex}
-                          onChange={setContent}
-                          activePath={activePath}
-                        />
-                      )}
-                    </div>
-                  </div>
-                  <div className="editor-pane editor-pane--preview">
-                    <div className="pane-header">预览 YAML</div>
-                    <div className="pane-body">
-                      {yamlPreview.ok ? (
+              {showYamlPreview ? (
+                <div className="editor-split" ref={editorSplitRef}>
+                  <div
+                    className={`editor-pane ${editMode === 'visual' ? 'editor-pane--visual' : 'editor-pane--source'}`}
+                    style={
+                      previewCollapsed
+                        ? { flex: '1 1 auto' }
+                        : { flex: `0 0 ${editorLeftPct}%` }
+                    }
+                  >
+                    <div className="pane-header">{editMode === 'visual' ? '可视化' : '源码'}</div>
+                    <div className={editMode === 'visual' ? 'pane-body pane-body--scroll' : 'pane-body'}>
+                      {editMode === 'visual' ? (
+                        <>
+                          {effectiveFileType === 'cube' && (
+                            <VisualCubeEditor
+                              content={content}
+                              cubeIndex={cubeIndex}
+                              onCubeIndexChange={setCubeIndex}
+                              onChange={setContent}
+                              activePath={activePath}
+                            />
+                          )}
+                          {effectiveFileType === 'view' && (
+                            <VisualViewEditor
+                              content={content}
+                              viewIndex={viewIndex}
+                              onViewIndexChange={setViewIndex}
+                              onChange={setContent}
+                              activePath={activePath}
+                            />
+                          )}
+                          {effectiveFileType === 'table' && (
+                            <VisualTableEditor
+                              content={content}
+                              onChange={setContent}
+                              activePath={activePath}
+                            />
+                          )}
+                        </>
+                      ) : (
                         <Editor
                           height="100%"
                           defaultLanguage="yaml"
-                          value={yamlPreview.text}
-                          theme="vs-dark"
+                          value={content}
+                          onChange={(v) => setContent(v || '')}
+                          theme="vs"
                           options={{
-                            readOnly: true,
-                            domReadOnly: true,
                             minimap: { enabled: false },
                             fontSize: 13,
                             wordWrap: 'on',
                             automaticLayout: true,
-                            scrollBeyondLastLine: false,
                           }}
                         />
-                      ) : (
-                        <div className="preview-yaml-error">
-                          <div className="preview-yaml-error-title">无法生成预览</div>
-                          <pre className="preview-yaml-error-msg">{yamlPreview.message}</pre>
-                        </div>
                       )}
                     </div>
                   </div>
-                </div>
-              ) : showYamlPreview ? (
-                <div className="editor-split">
-                  <div className="editor-pane editor-pane--source">
-                    <div className="pane-header">源码</div>
-                    <div className="pane-body">
-                      <Editor
-                        height="100%"
-                        defaultLanguage="yaml"
-                        value={content}
-                        onChange={(v) => setContent(v || '')}
-                        theme="vs-dark"
-                        options={{
-                          minimap: { enabled: false },
-                          fontSize: 13,
-                          wordWrap: 'on',
-                          automaticLayout: true,
-                        }}
+                  {previewCollapsed ? (
+                    <button
+                      type="button"
+                      className="preview-collapse-rail"
+                      onClick={() => setPreviewCollapsed(false)}
+                      title="展开 YAML 预览"
+                      aria-label="展开 YAML 预览"
+                    >
+                      <span className="preview-collapse-rail-icon" aria-hidden>
+                        ◀
+                      </span>
+                      <span className="preview-collapse-rail-label">预览 YAML</span>
+                    </button>
+                  ) : (
+                    <>
+                      <div
+                        className={`resizer resizer--v ${isResizing ? 'is-active' : ''}`}
+                        onPointerDown={startEditorSplitDrag}
+                        role="separator"
+                        aria-orientation="vertical"
+                        aria-label="拖拽以调整预览宽度"
                       />
-                    </div>
-                  </div>
-                  <div className="editor-pane editor-pane--preview">
-                    <div className="pane-header">预览 YAML</div>
-                    <div className="pane-body">
-                      {yamlPreview.ok ? (
-                        <Editor
-                          height="100%"
-                          defaultLanguage="yaml"
-                          value={yamlPreview.text}
-                          theme="vs-dark"
-                          options={{
-                            readOnly: true,
-                            domReadOnly: true,
-                            minimap: { enabled: false },
-                            fontSize: 13,
-                            wordWrap: 'on',
-                            automaticLayout: true,
-                            scrollBeyondLastLine: false,
-                          }}
-                        />
-                      ) : (
-                        <div className="preview-yaml-error">
-                          <div className="preview-yaml-error-title">无法生成预览</div>
-                          <pre className="preview-yaml-error-msg">{yamlPreview.message}</pre>
+                      <div className="editor-pane editor-pane--preview">
+                        <div className="pane-header pane-header--with-action">
+                          <span>预览 YAML</span>
+                          <button
+                            type="button"
+                            className="preview-collapse-btn"
+                            onClick={() => setPreviewCollapsed(true)}
+                            title="收起预览"
+                            aria-label="收起预览"
+                          >
+                            ▶
+                          </button>
                         </div>
-                      )}
-                    </div>
-                  </div>
+                        <div className="pane-body">
+                          {yamlPreview.ok ? (
+                            <Editor
+                              height="100%"
+                              defaultLanguage="yaml"
+                              value={yamlPreview.text}
+                              theme="vs"
+                              options={{
+                                readOnly: true,
+                                domReadOnly: true,
+                                minimap: { enabled: false },
+                                fontSize: 13,
+                                wordWrap: 'on',
+                                automaticLayout: true,
+                                scrollBeyondLastLine: false,
+                              }}
+                            />
+                          ) : (
+                            <div className="preview-yaml-error">
+                              <div className="preview-yaml-error-title">无法生成预览</div>
+                              <pre className="preview-yaml-error-msg">{yamlPreview.message}</pre>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </div>
               ) : (
                 <Editor
@@ -515,7 +761,7 @@ function App() {
                   defaultLanguage="yaml"
                   value={content}
                   onChange={(v) => setContent(v || '')}
-                  theme="vs-dark"
+                  theme="vs"
                   options={{
                     minimap: { enabled: false },
                     fontSize: 13,
@@ -527,7 +773,7 @@ function App() {
             </div>
           </>
         ) : (
-          <div className="empty-state">请选择左侧文件开始编辑</div>
+          <div className="empty-state">请选择左侧分类查看列表</div>
         )}
       </main>
 

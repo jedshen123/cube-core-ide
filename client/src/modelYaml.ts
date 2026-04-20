@@ -1,9 +1,33 @@
-import YAML from 'yaml';
+import YAML, { Scalar, isScalar } from 'yaml';
 
 export const YAML_PRINT_OPTIONS = { indent: 2, lineWidth: 0 } as const;
 
+/**
+ * 递归把含换行的字符串转换为 YAML 的块文本（`|`），
+ * 以便生成的 YAML 与 CubeCore 示例一致、更易读。
+ */
+function toBlockLiterals(v: unknown): unknown {
+  if (typeof v === 'string') {
+    if (v.includes('\n')) {
+      const s = new Scalar(v);
+      s.type = Scalar.BLOCK_LITERAL;
+      return s;
+    }
+    return v;
+  }
+  if (Array.isArray(v)) return v.map(toBlockLiterals);
+  if (v && typeof v === 'object' && !isScalar(v)) {
+    const out: Record<string, unknown> = {};
+    for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+      out[k] = toBlockLiterals(val);
+    }
+    return out;
+  }
+  return v;
+}
+
 export function stringifyDoc(doc: unknown): string {
-  return YAML.stringify(doc, YAML_PRINT_OPTIONS);
+  return YAML.stringify(toBlockLiterals(doc), YAML_PRINT_OPTIONS);
 }
 
 /**
@@ -94,6 +118,38 @@ export function setViewAt(doc: Record<string, unknown>, index: number, view: Rec
   doc.views = views;
 }
 
+// ——— Table file ———
+// Canonical shape: `{ table: { name, title, description, ..., fields: [...] } }`
+// (one table per file). Import tolerates `{ tables: [ ... ] }` (array).
+
+export function parseTableFile(content: string):
+  | { ok: true; doc: Record<string, unknown>; table: Record<string, unknown> }
+  | { ok: false; error: string } {
+  try {
+    const doc = YAML.parse(content) as Record<string, unknown> | null;
+    if (!doc || typeof doc !== 'object') return { ok: false, error: '根节点不是对象' };
+    if (doc.table && typeof doc.table === 'object' && !Array.isArray(doc.table)) {
+      return { ok: true, doc, table: doc.table as Record<string, unknown> };
+    }
+    if (Array.isArray(doc.tables) && doc.tables[0] && typeof doc.tables[0] === 'object') {
+      return { ok: true, doc, table: doc.tables[0] as Record<string, unknown> };
+    }
+    return { ok: false, error: '缺少 table/tables 字段' };
+  } catch (e: unknown) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+export function setTable(doc: Record<string, unknown>, table: Record<string, unknown>): void {
+  if (Array.isArray(doc.tables)) {
+    const tables = [...(doc.tables as Record<string, unknown>[])];
+    tables[0] = table;
+    doc.tables = tables;
+  } else {
+    doc.table = table;
+  }
+}
+
 // ——— Import / Export helpers ———
 
 /** 从任意 YAML 文本中提取 cube 条目（支持 `cubes:` 数组或单个 cube 对象）。 */
@@ -114,6 +170,33 @@ export function extractCubesFromText(text: string):
       return { ok: true, cubes: [d] };
     }
     return { ok: false, error: '未找到 cubes/cube 字段' };
+  } catch (e: unknown) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/** 从任意 YAML 文本中提取 table 条目（支持 `table:` 对象 / `tables:` 数组）。 */
+export function extractTablesFromText(text: string):
+  | { ok: true; tables: Record<string, unknown>[] }
+  | { ok: false; error: string } {
+  try {
+    const doc = YAML.parse(text);
+    if (!doc || typeof doc !== 'object') return { ok: false, error: 'YAML 根节点不是对象' };
+    const d = doc as Record<string, unknown>;
+    if (Array.isArray(d.tables)) {
+      return {
+        ok: true,
+        tables: (d.tables as unknown[]).filter((x) => x && typeof x === 'object') as Record<string, unknown>[],
+      };
+    }
+    if (d.table && typeof d.table === 'object') {
+      return { ok: true, tables: [d.table as Record<string, unknown>] };
+    }
+    // bare root with name+fields
+    if (typeof d.name === 'string' && Array.isArray(d.fields)) {
+      return { ok: true, tables: [d] };
+    }
+    return { ok: false, error: '未找到 table/tables 字段' };
   } catch (e: unknown) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
