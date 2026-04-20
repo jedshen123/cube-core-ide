@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type SyntheticEvent } from 'react';
+import { ExpandableTextarea } from './ExpandableTextarea';
 import type {
   CatalogResponse,
   CubeCatalogEntry,
@@ -20,6 +21,9 @@ type Props = {
   onRefresh: () => void;
   onSyncTables?: () => void;
   syncing?: boolean;
+  /** Tables 列表内联保存 title / description */
+  onSaveTableMeta?: (entry: TableCatalogEntry, next: { title: string; description: string }) => Promise<void>;
+  savingTablePath?: string | null;
 };
 
 function matches(entry: { name: string; title: string; description: string; path: string }, q: string) {
@@ -37,6 +41,72 @@ function dash(v: string) {
   return v && v.trim() ? v : '—';
 }
 
+function stopRowNav(e: SyntheticEvent) {
+  e.stopPropagation();
+}
+
+function CatalogTableRow({
+  index,
+  entry,
+  disabled,
+  onOpen,
+  onSave,
+}: {
+  index: number;
+  entry: TableCatalogEntry;
+  disabled: boolean;
+  onOpen: () => void;
+  onSave: (next: { title: string; description: string }) => Promise<void>;
+}) {
+  const [title, setTitle] = useState(entry.title);
+  const [description, setDescription] = useState(entry.description);
+
+  useEffect(() => {
+    setTitle(entry.title);
+    setDescription(entry.description);
+  }, [entry.path, entry.title, entry.description]);
+
+  const commitIfChanged = async () => {
+    if (disabled) return;
+    if (title === entry.title && description === entry.description) return;
+    await onSave({ title, description });
+  };
+
+  return (
+    <tr className="catalog-row catalog-row--table" onClick={onOpen} title="点击查看详情；标题与描述可悬停编辑">
+      <td className="catalog-td-index num">{index}</td>
+      <td className="catalog-td-table-name">
+        <span className="catalog-name">
+          <span className="catalog-icon">🗄</span>
+          {dash(entry.name)}
+        </span>
+      </td>
+      <td className="catalog-td-edit" onClick={stopRowNav} onPointerDown={stopRowNav}>
+        <input
+          type="text"
+          className="catalog-inline-input"
+          value={title}
+          disabled={disabled}
+          onChange={(e) => setTitle(e.target.value)}
+          onBlur={() => void commitIfChanged()}
+        />
+      </td>
+      <td className="catalog-desc catalog-td-edit" onClick={stopRowNav} onPointerDown={stopRowNav}>
+        <ExpandableTextarea
+          className="visual-input visual-input--mono visual-input--sql catalog-table-desc-sql"
+          value={description}
+          disabled={disabled}
+          minRowsFocused={4}
+          spellCheck
+          onChange={(v) => setDescription(v)}
+          onBlur={() => void commitIfChanged()}
+        />
+      </td>
+      <td className="num catalog-td-fields">{entry.fieldCount}</td>
+    </tr>
+  );
+}
+
 export function CatalogPage({
   catalog,
   loading,
@@ -49,6 +119,8 @@ export function CatalogPage({
   onRefresh,
   onSyncTables,
   syncing = false,
+  onSaveTableMeta,
+  savingTablePath = null,
 }: Props) {
   const [query, setQuery] = useState('');
 
@@ -71,21 +143,21 @@ export function CatalogPage({
       <table className="catalog-table">
         <thead>
           <tr>
-            <th style={{ width: '18%' }}>Name</th>
-            <th style={{ width: '18%' }}>Title</th>
+            <th className="catalog-th-index">序号</th>
+            <th style={{ width: '20%' }}>Name</th>
+            <th style={{ width: '20%' }}>Title</th>
             <th>Description</th>
-            <th style={{ width: '18%' }}>SQL Table</th>
-            <th style={{ width: '18%' }}>File</th>
           </tr>
         </thead>
         <tbody>
-          {filteredCubes.map((c) => (
+          {filteredCubes.map((c, displayIndex) => (
             <tr
               key={`${c.path}#${c.index}`}
               className="catalog-row"
               onClick={() => onOpenCube(c)}
               title="点击查看详情"
             >
+              <td className="catalog-td-index num">{displayIndex + 1}</td>
               <td>
                 <span className="catalog-name">
                   <span className="catalog-icon">🧊</span>
@@ -93,14 +165,17 @@ export function CatalogPage({
                 </span>
               </td>
               <td>{dash(c.title)}</td>
-              <td className="catalog-desc">{dash(c.description)}</td>
-              <td className="mono">{dash(c.sql_table || c.extends)}</td>
-              <td className="mono catalog-path">{c.path}</td>
+              <td
+                className="catalog-desc"
+                title={c.description?.trim() ? c.description : undefined}
+              >
+                <span className="catalog-desc-inner">{dash(c.description)}</span>
+              </td>
             </tr>
           ))}
           {filteredCubes.length === 0 && (
             <tr>
-              <td colSpan={5} className="catalog-empty">
+              <td colSpan={4} className="catalog-empty">
                 {cubes.length === 0 ? '当前目录下没有 cube' : '没有匹配的 cube'}
               </td>
             </tr>
@@ -115,21 +190,21 @@ export function CatalogPage({
       <table className="catalog-table">
         <thead>
           <tr>
-            <th style={{ width: '18%' }}>Name</th>
-            <th style={{ width: '18%' }}>Title</th>
+            <th className="catalog-th-index">序号</th>
+            <th style={{ width: '20%' }}>Name</th>
+            <th style={{ width: '20%' }}>Title</th>
             <th>Description</th>
-            <th style={{ width: '20%' }}>Cubes</th>
-            <th style={{ width: '18%' }}>File</th>
           </tr>
         </thead>
         <tbody>
-          {filteredViews.map((v) => (
+          {filteredViews.map((v, displayIndex) => (
             <tr
               key={`${v.path}#${v.index}`}
               className="catalog-row"
               onClick={() => onOpenView(v)}
               title="点击查看详情"
             >
+              <td className="catalog-td-index num">{displayIndex + 1}</td>
               <td>
                 <span className="catalog-name">
                   <span className="catalog-icon">👁</span>
@@ -137,24 +212,17 @@ export function CatalogPage({
                 </span>
               </td>
               <td>{dash(v.title)}</td>
-              <td className="catalog-desc">{dash(v.description)}</td>
-              <td className="catalog-tags">
-                {v.cubes.length === 0 ? (
-                  <span className="catalog-dim">—</span>
-                ) : (
-                  v.cubes.map((n) => (
-                    <span key={n} className="catalog-tag">
-                      {n}
-                    </span>
-                  ))
-                )}
+              <td
+                className="catalog-desc"
+                title={v.description?.trim() ? v.description : undefined}
+              >
+                <span className="catalog-desc-inner">{dash(v.description)}</span>
               </td>
-              <td className="mono catalog-path">{v.path}</td>
             </tr>
           ))}
           {filteredViews.length === 0 && (
             <tr>
-              <td colSpan={5} className="catalog-empty">
+              <td colSpan={4} className="catalog-empty">
                 {views.length === 0 ? '当前目录下没有 view' : '没有匹配的 view'}
               </td>
             </tr>
@@ -166,41 +234,34 @@ export function CatalogPage({
 
   const renderTables = () => (
     <div className="catalog-table-wrapper">
-      <table className="catalog-table">
+      <table className="catalog-table catalog-table--tables">
         <thead>
           <tr>
-            <th style={{ width: '16%' }}>Name</th>
-            <th style={{ width: '16%' }}>Title</th>
-            <th>Description</th>
-            <th style={{ width: '18%' }}>SQL Table</th>
-            <th style={{ width: '8%' }}>Fields</th>
-            <th style={{ width: '18%' }}>File</th>
+            <th className="catalog-th-index">序号</th>
+            <th style={{ width: '18%' }}>表英文名</th>
+            <th style={{ width: '18%' }}>表中文名</th>
+            <th>描述</th>
+            <th style={{ width: '10%' }}>字段数</th>
           </tr>
         </thead>
         <tbody>
-          {filteredTables.map((t) => (
-            <tr
+          {filteredTables.map((t, displayIndex) => (
+            <CatalogTableRow
               key={`${t.path}#${t.name}`}
-              className="catalog-row"
-              onClick={() => onOpenTable(t)}
-              title="点击查看详情"
-            >
-              <td>
-                <span className="catalog-name">
-                  <span className="catalog-icon">🗄</span>
-                  {dash(t.name)}
-                </span>
-              </td>
-              <td>{dash(t.title)}</td>
-              <td className="catalog-desc">{dash(t.description)}</td>
-              <td className="mono">{dash(t.sql_table)}</td>
-              <td className="num">{t.fieldCount}</td>
-              <td className="mono catalog-path">{t.path}</td>
-            </tr>
+              index={displayIndex + 1}
+              entry={t}
+              disabled={!onSaveTableMeta || savingTablePath === t.path}
+              onOpen={() => onOpenTable(t)}
+              onSave={
+                onSaveTableMeta
+                  ? (next) => onSaveTableMeta(t, next)
+                  : async () => {}
+              }
+            />
           ))}
           {filteredTables.length === 0 && (
             <tr>
-              <td colSpan={6} className="catalog-empty">
+              <td colSpan={5} className="catalog-empty">
                 {tables.length === 0 ? '当前目录下没有 table' : '没有匹配的 table'}
               </td>
             </tr>

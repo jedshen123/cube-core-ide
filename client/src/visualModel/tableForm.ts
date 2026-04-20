@@ -11,6 +11,8 @@ export type FieldFormRow = {
   title: string;
   description: string;
   data_type: string;
+  /** 枚举可选值，写入 YAML `enum_values`（多行或逗号分隔） */
+  enum_values: string;
   nullable: boolean;
   primary_key: boolean;
   /** 写入 YAML 的 `meta.ai_context`（多行字符串） */
@@ -34,6 +36,7 @@ export const emptyFieldRow = (): FieldFormRow => ({
   title: '',
   description: '',
   data_type: '',
+  enum_values: '',
   nullable: true,
   primary_key: false,
   metaAiContext: '',
@@ -67,6 +70,7 @@ function fieldToFormRow(f: Record<string, unknown>): FieldFormRow {
     title: str(f.title),
     description: str(f.description),
     data_type: str(f.data_type ?? f.type),
+    enum_values: str(f.enum_values ?? f.enum),
     nullable: bool(f.nullable, true),
     primary_key: bool(f.primary_key, false),
     metaAiContext: metaAiContextToFormString(f),
@@ -99,12 +103,18 @@ function mergeField(old: Record<string, unknown> | undefined, row: FieldFormRow)
   const title = optString(row.title);
   const description = optString(row.description);
   const data_type = optString(row.data_type);
+  const enum_values = optString(row.enum_values);
   if (title) next.title = title;
   else delete next.title;
   if (description) next.description = description;
   else delete next.description;
   if (data_type) next.data_type = data_type;
   else delete next.data_type;
+  if (enum_values) next.enum_values = enum_values;
+  else {
+    delete next.enum_values;
+    delete next.enum;
+  }
   // `nullable` 默认视为 true，非默认值才写入
   if (row.nullable === false) next.nullable = false;
   else delete next.nullable;

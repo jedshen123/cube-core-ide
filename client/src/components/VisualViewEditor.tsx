@@ -7,6 +7,7 @@ import {
   viewToFormState,
   type ViewFormState,
 } from '../visualModel/viewForm';
+import { ExpandableTextarea } from './ExpandableTextarea';
 
 type Props = {
   content: string;
@@ -172,10 +173,6 @@ export function VisualViewEditor({ content, viewIndex, onViewIndexChange, onChan
           </select>
         </div>
       )}
-      <p className="visual-doc-hint">
-        结构对齐 CubeCore：<strong>基础信息</strong>含 <code>name</code>、可选 <code>title</code> / <code>description</code> 与视图级 <code>meta.ai_context</code>；其下为{' '}
-        <code>cubes</code> 引用（<code>join_path</code>、<code>prefix</code>、<code>includes</code>）；列表项默认折叠，只显示 <code>join_path</code>。
-      </p>
 
       <section className="visual-section">
         <h3 className="visual-section-title">基础信息</h3>
@@ -185,26 +182,27 @@ export function VisualViewEditor({ content, viewIndex, onViewIndexChange, onChan
             <input className="visual-input" value={form.name} onChange={(e) => patch({ ...form, name: e.target.value })} />
           </div>
           <div className="visual-field">
-            <label className="visual-label">title（可选）</label>
+            <label className="visual-label">title</label>
             <input className="visual-input" value={form.title} onChange={(e) => patch({ ...form, title: e.target.value })} />
           </div>
           <div className="visual-field visual-grid-span2">
             <label className="visual-label">description（可选）</label>
-            <textarea
-              className="visual-textarea visual-textarea--sm"
+            <ExpandableTextarea
+              className="visual-textarea visual-textarea--sm visual-textarea--expandable"
               value={form.description}
-              onChange={(e) => patch({ ...form, description: e.target.value })}
-              rows={2}
+              onChange={(v) => patch({ ...form, description: v })}
+              minRowsFocused={3}
+              spellCheck
             />
           </div>
           <div className="visual-meta-ai visual-grid-span2">
             <label className="visual-label">meta.ai_context（View 级）</label>
             <p className="visual-meta-ai-hint">与 CubeCore 一致：视图业务说明写在 meta.ai_context。</p>
-            <textarea
-              className="visual-textarea"
+            <ExpandableTextarea
+              className="visual-textarea visual-textarea--expandable"
               value={form.viewMetaAiContext}
-              onChange={(e) => patch({ ...form, viewMetaAiContext: e.target.value })}
-              rows={8}
+              onChange={(v) => patch({ ...form, viewMetaAiContext: v })}
+              minRowsFocused={8}
               spellCheck={false}
             />
           </div>
@@ -290,7 +288,7 @@ function ListHeader({
   }`;
   return (
     <div className="visual-list-header">
-      <span className="visual-list-header-index">#</span>
+      <span className="visual-list-header-index">序号</span>
       <div className={fieldsClass}>
         {columns.map((c) => (
           <span key={c} className="visual-list-header-cell">{c}</span>
@@ -358,7 +356,7 @@ function CubeRefCard({ index, row, cubeIndex, expanded, onToggle, onChange, onDe
       <div className="visual-card-summary">
         <button type="button" className="visual-card-toggle" onClick={onToggle} aria-label={expanded ? '折叠' : '展开'}>
           <span className="visual-card-chevron">{expanded ? '▾' : '▸'}</span>
-          <span className="visual-card-index">#{index + 1}</span>
+          <span className="visual-card-index">{index + 1}</span>
         </button>
         <div className="visual-card-summary-fields visual-card-summary-fields--single">
           <input

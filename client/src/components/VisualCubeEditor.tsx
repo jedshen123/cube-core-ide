@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { parseCubeFile } from '../modelYaml';
 import {
   applyCubeFormToContent,
@@ -9,6 +9,7 @@ import {
   type JoinFormRow,
   type MeasureFormRow,
 } from '../visualModel/cubeForm';
+import { ExpandableTextarea } from './ExpandableTextarea';
 
 type Props = {
   content: string;
@@ -55,35 +56,14 @@ function SqlInput({
   placeholder?: string;
   minRowsFocused?: number;
 }) {
-  const ref = useRef<HTMLTextAreaElement>(null);
-  const [focused, setFocused] = useState(false);
-
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    el.style.height = 'auto';
-    const h = el.scrollHeight;
-    el.style.height = `${h}px`;
-  }, [value, focused]);
-
   return (
-    <textarea
-      ref={ref}
-      className={`visual-input visual-input--mono visual-input--sql ${focused ? 'is-focused' : ''}`}
+    <ExpandableTextarea
       value={value}
+      onChange={onChange}
       placeholder={placeholder}
+      minRowsFocused={minRowsFocused}
+      className="visual-input visual-input--mono visual-input--sql"
       spellCheck={false}
-      rows={focused ? minRowsFocused : 1}
-      onChange={(e) => onChange(e.target.value)}
-      onFocus={() => setFocused(true)}
-      onBlur={() => setFocused(false)}
-      onKeyDown={(e) => {
-        // Allow Enter to create newlines (default textarea behavior).
-        // Use Ctrl/Cmd+Enter to blur-finish like a shortcut.
-        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-          (e.currentTarget as HTMLTextAreaElement).blur();
-        }
-      }}
     />
   );
 }
@@ -105,11 +85,11 @@ function MetaAiField({
     <div className="visual-meta-ai">
       <label className="visual-label">{label}</label>
       {hint && <p className="visual-meta-ai-hint">{hint}</p>}
-      <textarea
-        className="visual-textarea"
+      <ExpandableTextarea
+        className="visual-textarea visual-textarea--expandable"
         value={value}
-        onChange={(e) => onChange(e.target.value)}
-        rows={rows}
+        onChange={onChange}
+        minRowsFocused={rows}
         spellCheck={false}
       />
     </div>
@@ -211,10 +191,6 @@ export function VisualCubeEditor({ content, cubeIndex, onCubeIndexChange, onChan
           </select>
         </div>
       )}
-      <p className="visual-doc-hint">
-        结构对齐 CubeCore：<strong>基础信息</strong>含 <code>description</code> 与 Cube 级 <code>meta.ai_context</code>；其下为{' '}
-        <code>dimensions</code> → <code>measures</code> → <code>joins</code>；列表项默认折叠，只显示概要字段。
-      </p>
 
       <section className="visual-section">
         <h3 className="visual-section-title">基础信息</h3>
@@ -222,7 +198,7 @@ export function VisualCubeEditor({ content, cubeIndex, onCubeIndexChange, onChan
           <Field label="name">
             <input className="visual-input" value={form.name} onChange={(e) => patch({ ...form, name: e.target.value })} />
           </Field>
-          <Field label="title（可选）">
+          <Field label="title">
             <input className="visual-input" value={form.title} onChange={(e) => patch({ ...form, title: e.target.value })} />
           </Field>
           <Field label="sql_table">
@@ -241,11 +217,12 @@ export function VisualCubeEditor({ content, cubeIndex, onCubeIndexChange, onChan
             />
           </Field>
           <Field label="description" className="visual-grid-span2">
-            <textarea
-              className="visual-textarea"
+            <ExpandableTextarea
+              className="visual-textarea visual-textarea--expandable"
               value={form.description}
-              onChange={(e) => patch({ ...form, description: e.target.value })}
-              rows={4}
+              onChange={(v) => patch({ ...form, description: v })}
+              minRowsFocused={4}
+              spellCheck
             />
           </Field>
           <div className="visual-grid-span2">
@@ -278,7 +255,7 @@ export function VisualCubeEditor({ content, cubeIndex, onCubeIndexChange, onChan
               <div className="visual-card-summary">
                 <button type="button" className="visual-card-toggle" onClick={toggle} aria-label={expanded ? '折叠' : '展开'}>
                   <span className="visual-card-chevron">{expanded ? '▾' : '▸'}</span>
-                  <span className="visual-card-index">#{i + 1}</span>
+                  <span className="visual-card-index">{i + 1}</span>
                 </button>
                 <div className="visual-card-summary-fields">
                   <input
@@ -352,15 +329,16 @@ export function VisualCubeEditor({ content, cubeIndex, onCubeIndexChange, onChan
                       </label>
                     </Field>
                     <Field label="description" className="visual-grid-span2">
-                      <textarea
-                        className="visual-textarea visual-textarea--sm"
+                      <ExpandableTextarea
+                        className="visual-textarea visual-textarea--sm visual-textarea--expandable"
                         value={row.description}
-                        onChange={(e) => {
+                        onChange={(v) => {
                           const d = [...form.dimensions];
-                          d[i] = { ...row, description: e.target.value };
+                          d[i] = { ...row, description: v };
                           patch({ ...form, dimensions: d });
                         }}
-                        rows={2}
+                        minRowsFocused={3}
+                        spellCheck
                       />
                     </Field>
                   </div>
@@ -413,7 +391,7 @@ export function VisualCubeEditor({ content, cubeIndex, onCubeIndexChange, onChan
               <div className="visual-card-summary">
                 <button type="button" className="visual-card-toggle" onClick={toggle} aria-label={expanded ? '折叠' : '展开'}>
                   <span className="visual-card-chevron">{expanded ? '▾' : '▸'}</span>
-                  <span className="visual-card-index">#{i + 1}</span>
+                  <span className="visual-card-index">{i + 1}</span>
                 </button>
                 <div className="visual-card-summary-fields">
                   <input
@@ -473,15 +451,16 @@ export function VisualCubeEditor({ content, cubeIndex, onCubeIndexChange, onChan
                       />
                     </Field>
                     <Field label="description" className="visual-grid-span2">
-                      <textarea
-                        className="visual-textarea visual-textarea--sm"
+                      <ExpandableTextarea
+                        className="visual-textarea visual-textarea--sm visual-textarea--expandable"
                         value={row.description}
-                        onChange={(e) => {
+                        onChange={(v) => {
                           const m = [...form.measures];
-                          m[i] = { ...row, description: e.target.value };
+                          m[i] = { ...row, description: v };
                           patch({ ...form, measures: m });
                         }}
-                        rows={2}
+                        minRowsFocused={3}
+                        spellCheck
                       />
                     </Field>
                     <div className="visual-field visual-grid-span2">
@@ -495,7 +474,7 @@ export function VisualCubeEditor({ content, cubeIndex, onCubeIndexChange, onChan
                       )}
                       {row.filters.map((f, fi) => (
                         <div key={fi} className="visual-filter-row">
-                          <span className="visual-filter-index">#{fi + 1}</span>
+                          <span className="visual-filter-index">{fi + 1}</span>
                           <div className="visual-filter-input">
                             <SqlInput
                               value={f.sql}
@@ -582,7 +561,7 @@ export function VisualCubeEditor({ content, cubeIndex, onCubeIndexChange, onChan
               <div className="visual-card-summary">
                 <button type="button" className="visual-card-toggle" onClick={toggle} aria-label={expanded ? '折叠' : '展开'}>
                   <span className="visual-card-chevron">{expanded ? '▾' : '▸'}</span>
-                  <span className="visual-card-index">#{i + 1}</span>
+                  <span className="visual-card-index">{i + 1}</span>
                 </button>
                 <div className="visual-card-summary-fields visual-card-summary-fields--two">
                   <input
@@ -668,7 +647,7 @@ function ListHeader({
   }`;
   return (
     <div className="visual-list-header">
-      <span className="visual-list-header-index">#</span>
+      <span className="visual-list-header-index">序号</span>
       <div className={fieldsClass}>
         {columns.map((c) => (
           <span key={c} className="visual-list-header-cell">{c}</span>

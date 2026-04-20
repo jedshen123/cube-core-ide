@@ -324,6 +324,39 @@
   min-height: 44px;
 }
 
+/* description / meta.ai_context：与 .visual-input--sql 相同的聚焦展开与高度自适应 */
+textarea.visual-textarea.visual-textarea--expandable {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  overflow: auto;
+  white-space: pre-wrap;
+  line-height: 1.5;
+  min-height: 0;
+  max-height: 120px;
+  transition: min-height 0.12s ease, max-height 0.12s ease, box-shadow 0.12s ease,
+    border-color 0.12s ease;
+}
+
+textarea.visual-textarea.visual-textarea--expandable.is-focused {
+  min-height: 120px;
+  max-height: 480px;
+  box-shadow: 0 0 0 3px var(--mb-color-focus);
+  border-color: var(--primary);
+}
+
+textarea.visual-textarea.visual-textarea--expandable.visual-textarea--sm {
+  min-height: 0;
+  max-height: 100px;
+  padding: 6px 10px;
+}
+
+textarea.visual-textarea.visual-textarea--expandable.visual-textarea--sm.is-focused {
+  min-height: 100px;
+  max-height: 400px;
+}
+
 .visual-input--role {
   max-width: 160px;
 }
@@ -430,6 +463,15 @@
     minmax(0, 1.4fr);
 }
 
+.visual-card-summary-fields--five {
+  grid-template-columns:
+    minmax(0, 1fr)
+    minmax(0, 1fr)
+    minmax(0, 0.85fr)
+    minmax(0, 1.1fr)
+    minmax(0, 1fr);
+}
+
 /* ---------------- Table-like list header ---------------- */
 .visual-list-header {
   display: flex;
@@ -509,6 +551,12 @@
   background: var(--bg-white);
   box-shadow: 0 0 0 2px var(--mb-color-focus);
   outline: none;
+}
+
+/* Table 字段行：SQL 样式 textarea 用 ExpandableTextarea 的 .is-focused，与全局 sql 阴影一致 */
+.visual-card--list .visual-card-summary textarea.visual-input--sql.is-focused {
+  box-shadow: 0 0 0 3px var(--mb-color-focus);
+  border-color: var(--primary);
 }
 
 /* List card (rows) use tighter default spacing & "row" look */
@@ -723,6 +771,7 @@
 .visual-filter-input {
   flex: 1;
   min-width: 0;
+  min-height: 0;
 }
 
 .visual-input--mono {
@@ -740,7 +789,8 @@
   white-space: pre;
   line-height: 1.5;
   padding: 8px 10px;
-  min-height: 34px;
+  /* 允许在 flex 行内按 max-height 收缩；避免 min-content 把父级撑死 */
+  min-height: 0;
   max-height: 120px;
   transition: min-height 0.12s ease, max-height 0.12s ease,
               box-shadow 0.12s ease, border-color 0.12s ease;

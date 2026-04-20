@@ -7,40 +7,17 @@ import {
   tableToFormState,
   type TableFormState,
 } from '../visualModel/tableForm';
+import { ExpandableTextarea } from './ExpandableTextarea';
+
+/** 与 Sql 字段一致：纵向 resize、聚焦展开高度（ExpandableTextarea + visual-input--sql） */
+const SQL_TEXTAREA = 'visual-input visual-input--mono visual-input--sql';
+const SQL_TEXTAREA_SUMMARY = `${SQL_TEXTAREA} visual-input--compact`;
 
 type Props = {
   content: string;
   onChange: (yaml: string) => void;
   activePath: string | null;
 };
-
-function MetaAiField({
-  label,
-  hint,
-  value,
-  onChange,
-  rows = 4,
-}: {
-  label: string;
-  hint?: string;
-  value: string;
-  onChange: (v: string) => void;
-  rows?: number;
-}) {
-  return (
-    <div className="visual-meta-ai">
-      <label className="visual-label">{label}</label>
-      {hint && <p className="visual-meta-ai-hint">{hint}</p>}
-      <textarea
-        className="visual-textarea"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        rows={rows}
-        spellCheck={false}
-      />
-    </div>
-  );
-}
 
 export function VisualTableEditor({ content, onChange, activePath }: Props) {
   const [form, setForm] = useState<TableFormState>(emptyTableForm);
@@ -99,15 +76,10 @@ export function VisualTableEditor({ content, onChange, activePath }: Props) {
 
   return (
     <div className="visual-editor visual-editor--table">
-      <p className="visual-doc-hint">
-        每个文件存储<strong>一张物理表</strong>的元数据：根节点 <code>table:</code> 包含表属性与 <code>fields</code> 列表；
-        支持 <code>meta.ai_context</code>（多行字符串）在表级与字段级描述语义。
-      </p>
-
       <section className="visual-section">
         <h3 className="visual-section-title">基础信息</h3>
         <div className="visual-grid">
-          <Field label="name">
+          <Field label="表英文名">
             <input
               className="visual-input"
               value={form.name}
@@ -115,71 +87,36 @@ export function VisualTableEditor({ content, onChange, activePath }: Props) {
               placeholder="物理表的逻辑名，文件唯一 key"
             />
           </Field>
-          <Field label="title（可选）">
+          <Field label="表中文名">
             <input
               className="visual-input"
               value={form.title}
               onChange={(e) => patch({ ...form, title: e.target.value })}
             />
           </Field>
-          <Field label="database（可选）">
-            <input
-              className="visual-input"
-              value={form.database}
-              onChange={(e) => patch({ ...form, database: e.target.value })}
-              placeholder="例如 analytics"
-            />
-          </Field>
-          <Field label="schema（可选）">
-            <input
-              className="visual-input"
-              value={form.schema}
-              onChange={(e) => patch({ ...form, schema: e.target.value })}
-              placeholder="例如 public"
-            />
-          </Field>
-          <Field label="sql_table（可选，全名）" className="visual-grid-span2">
-            <input
-              className="visual-input"
-              value={form.sql_table}
-              onChange={(e) => patch({ ...form, sql_table: e.target.value })}
-              placeholder="schema.table，例如 public.orders"
-            />
-          </Field>
-          <Field label="description" className="visual-grid-span2">
-            <textarea
-              className="visual-textarea"
+          <Field label="描述" className="visual-grid-span2">
+            <ExpandableTextarea
+              className={SQL_TEXTAREA}
               value={form.description}
-              onChange={(e) => patch({ ...form, description: e.target.value })}
-              rows={3}
+              onChange={(v) => patch({ ...form, description: v })}
+              minRowsFocused={4}
+              spellCheck
             />
           </Field>
-          <div className="visual-grid-span2">
-            <MetaAiField
-              label="meta.ai_context（表级）"
-              hint="对应 YAML 路径 meta.ai_context，供 AI 助手理解该表语义。"
-              value={form.tableMetaAiContext}
-              onChange={(v) => patch({ ...form, tableMetaAiContext: v })}
-              rows={6}
-            />
-          </div>
         </div>
       </section>
 
       <section className="visual-section">
         <div className="visual-section-title-row">
-          <h3 className="visual-section-title">字段列表（Fields）</h3>
+          <h3 className="visual-section-title">字段列表</h3>
           <span className="visual-muted" style={{ fontSize: 12 }}>
             共 {form.fields.length} 个字段
           </span>
         </div>
-        <p className="visual-section-hint">
-          点击行展开可编辑 <code>description</code>、<code>nullable</code>、<code>primary_key</code> 与{' '}
-          <code>meta.ai_context</code>。未在表单里编辑的字段（例如自定义键）会从原 YAML 保留。
-        </p>
-
         {form.fields.length > 0 && (
-          <ListHeader columns={['name', 'title', 'data_type', 'description']} />
+          <ListHeader
+            columns={['字段ID', '字段名称', '字段类型', '字段描述', '枚举值']}
+          />
         )}
 
         {form.fields.map((row, i) => {
@@ -200,12 +137,12 @@ export function VisualTableEditor({ content, onChange, activePath }: Props) {
                   aria-label={expanded ? '折叠' : '展开'}
                 >
                   <span className="visual-card-chevron">{expanded ? '▾' : '▸'}</span>
-                  <span className="visual-card-index">#{i + 1}</span>
+                  <span className="visual-card-index">{i + 1}</span>
                 </button>
-                <div className="visual-card-summary-fields visual-card-summary-fields--four">
+                <div className="visual-card-summary-fields visual-card-summary-fields--five">
                   <input
                     className="visual-input visual-input--compact"
-                    placeholder="name"
+                    placeholder="ID"
                     value={row.name}
                     onChange={(e) => {
                       const d = [...form.fields];
@@ -215,7 +152,7 @@ export function VisualTableEditor({ content, onChange, activePath }: Props) {
                   />
                   <input
                     className="visual-input visual-input--compact"
-                    placeholder="title"
+                    placeholder="名称"
                     value={row.title}
                     onChange={(e) => {
                       const d = [...form.fields];
@@ -225,7 +162,7 @@ export function VisualTableEditor({ content, onChange, activePath }: Props) {
                   />
                   <input
                     className="visual-input visual-input--compact"
-                    placeholder="data_type"
+                    placeholder="类型"
                     value={row.data_type}
                     onChange={(e) => {
                       const d = [...form.fields];
@@ -233,15 +170,29 @@ export function VisualTableEditor({ content, onChange, activePath }: Props) {
                       patch({ ...form, fields: d });
                     }}
                   />
-                  <input
-                    className="visual-input visual-input--compact"
-                    placeholder="description"
+                  <ExpandableTextarea
+                    className={SQL_TEXTAREA_SUMMARY}
+                    placeholder="描述"
                     value={row.description}
-                    onChange={(e) => {
+                    onChange={(v) => {
                       const d = [...form.fields];
-                      d[i] = { ...row, description: e.target.value };
+                      d[i] = { ...row, description: v };
                       patch({ ...form, fields: d });
                     }}
+                    minRowsFocused={4}
+                    spellCheck
+                  />
+                  <ExpandableTextarea
+                    className={SQL_TEXTAREA_SUMMARY}
+                    placeholder="枚举值"
+                    value={row.enum_values}
+                    onChange={(v) => {
+                      const d = [...form.fields];
+                      d[i] = { ...row, enum_values: v };
+                      patch({ ...form, fields: d });
+                    }}
+                    minRowsFocused={4}
+                    spellCheck={false}
                   />
                 </div>
                 <button
@@ -286,30 +237,33 @@ export function VisualTableEditor({ content, onChange, activePath }: Props) {
                         主键
                       </label>
                     </Field>
-                    <Field label="description" className="visual-grid-span2">
-                      <textarea
-                        className="visual-textarea visual-textarea--sm"
+                    <Field label="字段描述" className="visual-grid-span2">
+                      <ExpandableTextarea
+                        className={SQL_TEXTAREA}
                         value={row.description}
-                        onChange={(e) => {
+                        onChange={(v) => {
                           const d = [...form.fields];
-                          d[i] = { ...row, description: e.target.value };
+                          d[i] = { ...row, description: v };
                           patch({ ...form, fields: d });
                         }}
-                        rows={2}
+                        minRowsFocused={5}
+                        spellCheck
+                      />
+                    </Field>
+                    <Field label="枚举值" className="visual-grid-span2">
+                      <ExpandableTextarea
+                        className={SQL_TEXTAREA}
+                        value={row.enum_values}
+                        onChange={(v) => {
+                          const d = [...form.fields];
+                          d[i] = { ...row, enum_values: v };
+                          patch({ ...form, fields: d });
+                        }}
+                        minRowsFocused={5}
+                        spellCheck={false}
                       />
                     </Field>
                   </div>
-                  <MetaAiField
-                    label="meta.ai_context"
-                    hint="字段级 AI 说明，写入 YAML 的 meta.ai_context。"
-                    value={row.metaAiContext}
-                    onChange={(v) => {
-                      const d = [...form.fields];
-                      d[i] = { ...row, metaAiContext: v };
-                      patch({ ...form, fields: d });
-                    }}
-                    rows={3}
-                  />
                 </div>
               )}
             </div>
@@ -332,10 +286,12 @@ export function VisualTableEditor({ content, onChange, activePath }: Props) {
 }
 
 function ListHeader({ columns }: { columns: string[] }) {
+  const gridClass =
+    columns.length >= 5 ? 'visual-card-summary-fields--five' : 'visual-card-summary-fields--four';
   return (
     <div className="visual-list-header">
-      <span className="visual-list-header-index">#</span>
-      <div className="visual-list-header-fields visual-card-summary-fields visual-card-summary-fields--four">
+      <span className="visual-list-header-index">序号</span>
+      <div className={`visual-list-header-fields visual-card-summary-fields ${gridClass}`}>
         {columns.map((c) => (
           <span key={c} className="visual-list-header-cell">
             {c}

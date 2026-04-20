@@ -25,6 +25,7 @@ import {
   sanitizeFilename,
   stringifyDoc,
 } from './modelYaml';
+import { applyTableFormToContent, tableToFormState } from './visualModel/tableForm';
 import './visual-editor.css';
 
 function yamlPreviewFromSource(source: string): { ok: true; text: string } | { ok: false; message: string } {
@@ -63,6 +64,7 @@ function App() {
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [syncingTables, setSyncingTables] = useState(false);
+  const [savingTablePath, setSavingTablePath] = useState<string | null>(null);
   const [previewCollapsed, setPreviewCollapsed] = useState(true);
   const wsRef = useRef<WebSocket | null>(null);
   const hotReloadTimerRef = useRef<number | null>(null);
@@ -157,6 +159,13 @@ function App() {
     }
   };
 
+  const activePathRef = useRef<string | null>(null);
+  activePathRef.current = activePath;
+  const refreshCatalogRef = useRef(refreshCatalog);
+  refreshCatalogRef.current = refreshCatalog;
+  const refreshFilesRef = useRef(refreshFiles);
+  refreshFilesRef.current = refreshFiles;
+
   const syncTablesFromStarRocks = async () => {
     if (syncingTables) return;
     setSyncingTables(true);
@@ -247,6 +256,36 @@ function App() {
   const handleOpenTable = (entry: TableCatalogEntry) => {
     setSection('table');
     openFile(entry.path);
+  };
+
+  const handleSaveTableMeta = async (
+    entry: TableCatalogEntry,
+    next: { title: string; description: string }
+  ) => {
+    setSavingTablePath(entry.path);
+    setError(null);
+    try {
+      const { content: yamlText } = await api.readFile(entry.path);
+      const parsed = parseTableFile(yamlText);
+      if (!parsed.ok) throw new Error(parsed.error);
+      const form = tableToFormState(parsed.table);
+      const result = applyTableFormToContent(yamlText, {
+        ...form,
+        title: next.title,
+        description: next.description,
+      });
+      if (!result.ok) throw new Error(result.error);
+      await api.writeFile(entry.path, result.yaml);
+      if (activePath === entry.path) {
+        setContent(result.yaml);
+        setOriginalContent(result.yaml);
+      }
+      await refreshCatalog();
+    } catch (e: any) {
+      setError(e.message ?? String(e));
+    } finally {
+      setSavingTablePath(null);
+    }
   };
 
   const saveFile = async () => {
@@ -451,41 +490,74 @@ function App() {
   };
 
   useEffect(() => {
-    const ws = new WebSocket(`ws://${window.location.host}/ws`);
-    wsRef.current = ws;
+    let cancelled = false;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let socket: WebSocket | null = null;
 
-    ws.onmessage = async (event) => {
-      const msg = JSON.parse(event.data);
-      if (msg.event === 'file:changed' && msg.path === activePath) {
-        setHotReloadEvent('文件在外部被修改，已热更新');
-        try {
-          const data = await api.readFile(msg.path);
-          setContent(data.content);
-          setOriginalContent(data.content);
-        } catch (e: any) {
-          setError(e.message);
+    const connect = () => {
+      if (cancelled) return;
+      const wsUrl =
+        (window.location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + window.location.host + '/ws';
+      socket = new WebSocket(wsUrl);
+      wsRef.current = socket;
+
+      socket.onmessage = async (event) => {
+        const msg = JSON.parse(event.data);
+        if (msg.event === 'file:changed' && msg.path === activePathRef.current) {
+          setHotReloadEvent('文件在外部被修改，已热更新');
+          try {
+            const data = await api.readFile(msg.path);
+            setContent(data.content);
+            setOriginalContent(data.content);
+          } catch (e: any) {
+            setError(e.message);
+          }
+          if (hotReloadTimerRef.current) window.clearTimeout(hotReloadTimerRef.current);
+          hotReloadTimerRef.current = window.setTimeout(() => setHotReloadEvent(null), 3000);
         }
-        if (hotReloadTimerRef.current) window.clearTimeout(hotReloadTimerRef.current);
-        hotReloadTimerRef.current = window.setTimeout(() => setHotReloadEvent(null), 3000);
-      }
-      if (msg.event === 'file:changed' || msg.event === 'file:added' || msg.event === 'file:deleted') {
-        refreshCatalog();
-      }
-      if (msg.event === 'file:added' || msg.event === 'file:deleted') {
-        await refreshFiles();
-      }
+        if (msg.event === 'file:changed' || msg.event === 'file:added' || msg.event === 'file:deleted') {
+          void refreshCatalogRef.current();
+        }
+        if (msg.event === 'file:added' || msg.event === 'file:deleted') {
+          await refreshFilesRef.current();
+        }
+      };
+
+      socket.onerror = () => {
+        /* 后端未启动或短暂断线时不打扰用户；热更新为附加能力 */
+      };
+
+      socket.onclose = () => {
+        wsRef.current = null;
+        if (cancelled) return;
+        reconnectTimer = window.setTimeout(connect, 4000);
+      };
     };
 
-    ws.onerror = () => setError('WebSocket 连接失败');
+    connect();
 
     return () => {
-      ws.close();
+      cancelled = true;
+      if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
+      socket?.close();
+      wsRef.current = null;
     };
-  }, [activePath]);
+  }, []);
 
   const cubeCount = catalog?.cubes.length ?? 0;
   const viewCount = catalog?.views.length ?? 0;
   const tableCount = catalog?.tables.length ?? 0;
+
+  /** 列表页按 section；详情页按当前文件类型，避免打开条目后左栏分类失去高亮 */
+  const sidebarCubeActive =
+    (viewMode === 'catalog' && section === 'cube') ||
+    (viewMode === 'detail' && effectiveFileType === 'cube');
+  const sidebarViewActive =
+    (viewMode === 'catalog' && section === 'view') ||
+    (viewMode === 'detail' && effectiveFileType === 'view');
+  const sidebarTableActive =
+    (viewMode === 'catalog' && section === 'table') ||
+    (viewMode === 'detail' && effectiveFileType === 'table');
 
   const handleSelectSection = (s: CatalogSection) => {
     setSection(s);
@@ -517,7 +589,7 @@ function App() {
         <nav className="sidebar-nav" aria-label="模型分类">
           <button
             type="button"
-            className={`sidebar-nav-item ${viewMode === 'catalog' && section === 'cube' ? 'active' : ''}`}
+            className={`sidebar-nav-item ${sidebarCubeActive ? 'active' : ''}`}
             onClick={() => handleSelectSection('cube')}
           >
             <span className="sidebar-nav-icon">🧊</span>
@@ -526,7 +598,7 @@ function App() {
           </button>
           <button
             type="button"
-            className={`sidebar-nav-item ${viewMode === 'catalog' && section === 'view' ? 'active' : ''}`}
+            className={`sidebar-nav-item ${sidebarViewActive ? 'active' : ''}`}
             onClick={() => handleSelectSection('view')}
           >
             <span className="sidebar-nav-icon">👁</span>
@@ -535,7 +607,7 @@ function App() {
           </button>
           <button
             type="button"
-            className={`sidebar-nav-item ${viewMode === 'catalog' && section === 'table' ? 'active' : ''}`}
+            className={`sidebar-nav-item ${sidebarTableActive ? 'active' : ''}`}
             onClick={() => handleSelectSection('table')}
           >
             <span className="sidebar-nav-icon">🗄</span>
@@ -575,6 +647,8 @@ function App() {
             onRefresh={refreshCatalog}
             onSyncTables={syncTablesFromStarRocks}
             syncing={syncingTables}
+            onSaveTableMeta={handleSaveTableMeta}
+            savingTablePath={savingTablePath}
           />
         ) : activePath ? (
           <>
