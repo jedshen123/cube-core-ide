@@ -22,18 +22,23 @@ type Props = {
   onRefresh: () => void;
   onSyncTables?: () => void;
   syncing?: boolean;
-  /** Tables 列表内联保存 title / description */
+  /** Tables 列表内联保存 title / description（血缘仅在详情中编辑） */
   onSaveTableMeta?: (entry: TableCatalogEntry, next: { title: string; description: string }) => Promise<void>;
   savingTablePath?: string | null;
 };
 
-function matches(entry: { name: string; title: string; description: string; path: string }, q: string) {
+function matches(
+  entry: { name: string; title: string; description: string; path: string; lineage?: string },
+  q: string
+) {
   if (!q) return true;
   const needle = q.toLowerCase();
+  const lineage = (entry.lineage ?? '').toLowerCase();
   return (
     entry.name.toLowerCase().includes(needle) ||
     entry.title.toLowerCase().includes(needle) ||
     entry.description.toLowerCase().includes(needle) ||
+    lineage.includes(needle) ||
     entry.path.toLowerCase().includes(needle)
   );
 }
@@ -74,7 +79,11 @@ function CatalogTableRow({
   };
 
   return (
-    <tr className="catalog-row catalog-row--table" onClick={onOpen} title="点击查看详情；标题与描述可悬停编辑">
+    <tr
+      className="catalog-row catalog-row--table"
+      onClick={onOpen}
+      title="点击查看详情；标题与描述可悬停编辑"
+    >
       <td className="catalog-td-index num">{index}</td>
       <td className="catalog-td-table-name catalog-td-name-en">
         <span className="catalog-name">

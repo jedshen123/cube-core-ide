@@ -153,6 +153,7 @@ interface TableCatalogEntry {
   name: string;
   title: string;
   description: string;
+  lineage: string;
   sql_table: string;
   schema: string;
   database: string;
@@ -272,6 +273,7 @@ app.get("/api/catalog", async (_req, res) => {
           name: asString(t.name),
           title: asString(t.title),
           description: asString(t.description),
+          lineage: asString(t.lineage),
           sql_table: asString(t.sql_table),
           schema: asString(t.schema),
           database: asString(t.database),
@@ -453,6 +455,10 @@ app.post("/api/starrocks/sync", async (_req, res) => {
   for (const info of tables) {
     if (!info.name) {
       skipped.push({ name: "(空)", reason: "表名为空" });
+      continue;
+    }
+    if (info.name.toLowerCase().includes("tmp")) {
+      skipped.push({ name: info.name, reason: "表名包含 tmp，已跳过同步" });
       continue;
     }
     if (existing.has(info.name)) {

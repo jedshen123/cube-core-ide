@@ -150,6 +150,39 @@ export function setTable(doc: Record<string, unknown>, table: Record<string, unk
   }
 }
 
+export type StructuredModelKind = 'cube' | 'view' | 'table';
+
+/** 从当前 YAML 中读取首条 cube/view/table 的 `name`，用于新建保存时命名文件 */
+export function extractStructuredModelName(
+  kind: StructuredModelKind,
+  content: string
+): { ok: true; name: string } | { ok: false; error: string } {
+  if (kind === 'cube') {
+    const p = parseCubeFile(content);
+    if (!p.ok) return { ok: false, error: p.error };
+    if (p.cubes.length === 0) return { ok: false, error: '缺少 cube 定义' };
+    const n = p.cubes[0].name;
+    const name = typeof n === 'string' ? n.trim() : '';
+    if (!name) return { ok: false, error: '请填写 Cube 的 name' };
+    return { ok: true, name };
+  }
+  if (kind === 'view') {
+    const p = parseViewFile(content);
+    if (!p.ok) return { ok: false, error: p.error };
+    if (p.views.length === 0) return { ok: false, error: '缺少 view 定义' };
+    const n = p.views[0].name;
+    const name = typeof n === 'string' ? n.trim() : '';
+    if (!name) return { ok: false, error: '请填写 View 的 name' };
+    return { ok: true, name };
+  }
+  const p = parseTableFile(content);
+  if (!p.ok) return { ok: false, error: p.error };
+  const n = p.table.name;
+  const name = typeof n === 'string' ? n.trim() : '';
+  if (!name) return { ok: false, error: '请填写 Table 的 name' };
+  return { ok: true, name };
+}
+
 // ——— Import / Export helpers ———
 
 /** 从任意 YAML 文本中提取 cube 条目（支持 `cubes:` 数组或单个 cube 对象）。 */

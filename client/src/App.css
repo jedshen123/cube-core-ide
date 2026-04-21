@@ -319,6 +319,28 @@ body {
   gap: 12px;
 }
 
+.toolbar-from-table-cube {
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: var(--radius);
+  border: 1px solid var(--mb-color-brand-subtle-border);
+  background: var(--mb-color-brand-subtle-bg);
+  color: var(--primary);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.toolbar-from-table-cube:hover:not(:disabled) {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 14%, white);
+}
+
+.toolbar-from-table-cube:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .toolbar-left .filename {
   font-size: 15px;
   font-weight: 600;
@@ -554,6 +576,97 @@ body {
   justify-content: center;
   color: var(--text-muted);
   font-size: 14px;
+}
+
+/* 新建：选择 Cube / View / Table */
+.create-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  background: rgba(15, 23, 42, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.create-modal {
+  width: 100%;
+  max-width: 440px;
+  background: var(--bg-white);
+  border-radius: var(--radius);
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-md);
+  padding: 22px 24px 18px;
+}
+
+.create-modal-title {
+  margin: 0 0 8px;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.create-modal-hint {
+  margin: 0 0 18px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+
+.create-modal-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.create-modal-choice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: left;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background: var(--bg-white);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+
+.create-modal-choice:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: var(--mb-color-brand-subtle-bg);
+}
+
+.create-modal-choice-icon {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.create-modal-choice-label {
+  flex: 1;
+}
+
+.create-modal-cancel {
+  margin-top: 14px;
+  width: 100%;
+  padding: 8px;
+  font-size: 13px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+
+.create-modal-cancel:hover {
+  color: var(--text-primary);
+  background: var(--bg-gray);
 }
 
 .error-toast {

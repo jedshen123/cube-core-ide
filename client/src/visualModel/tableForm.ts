@@ -23,6 +23,8 @@ export type TableFormState = {
   name: string;
   title: string;
   description: string;
+  /** 数据血缘 */
+  lineage: string;
   schema: string;
   database: string;
   sql_table: string;
@@ -46,6 +48,7 @@ export const emptyTableForm = (): TableFormState => ({
   name: '',
   title: '',
   description: '',
+  lineage: '',
   schema: '',
   database: '',
   sql_table: '',
@@ -82,6 +85,7 @@ export function tableToFormState(table: Record<string, unknown>): TableFormState
     name: str(table.name),
     title: str(table.title),
     description: str(table.description),
+    lineage: str(table.lineage),
     schema: str(table.schema),
     database: str(table.database),
     sql_table: str(table.sql_table),
@@ -132,6 +136,7 @@ export function formStateToTable(
   next.name = form.name.trim();
   const title = optString(form.title);
   const description = optString(form.description);
+  const lineage = optString(form.lineage);
   const schema = optString(form.schema);
   const database = optString(form.database);
   const sql_table = optString(form.sql_table);
@@ -139,6 +144,8 @@ export function formStateToTable(
   else delete next.title;
   if (description) next.description = description;
   else delete next.description;
+  if (lineage) next.lineage = lineage;
+  else delete next.lineage;
   if (schema) next.schema = schema;
   else delete next.schema;
   if (database) next.database = database;

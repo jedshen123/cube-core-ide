@@ -19,6 +19,7 @@ import {
   collectTableRecordsFromYamlRoot,
   collectViewRecordsFromYamlRoot,
   downloadTextFile,
+  extractStructuredModelName,
   parseCubeFile,
   parseTableFile,
   parseViewFile,
@@ -28,6 +29,7 @@ import {
   stringifyExportBundle,
   uniquePathsInOrder,
 } from './modelYaml';
+import { buildCubeYamlFromTableContent, findCubeMatchingTableEnglishName } from './visualModel/cubeFromTable';
 import { applyTableFormToContent, tableToFormState } from './visualModel/tableForm';
 import './visual-editor.css';
 
@@ -69,6 +71,9 @@ function App() {
   const [syncingTables, setSyncingTables] = useState(false);
   const [savingTablePath, setSavingTablePath] = useState<string | null>(null);
   const [previewCollapsed, setPreviewCollapsed] = useState(true);
+  /** 新建未落盘：无路径，保存时按 YAML 中 name 写入 cubes|views|tables/&lt;name&gt;.yml */
+  const [newDraft, setNewDraft] = useState<{ kind: CatalogSection } | null>(null);
+  const [createModalOpen, setCreateModalOpen] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const hotReloadTimerRef = useRef<number | null>(null);
   const editorSplitRef = useRef<HTMLDivElement>(null);
@@ -125,13 +130,16 @@ function App() {
   );
 
   const effectiveFileType: FileInfo['type'] = useMemo(() => {
+    if (newDraft) {
+      return newDraft.kind === 'cube' ? 'cube' : newDraft.kind === 'view' ? 'view' : 'table';
+    }
     if (activeFile?.type) return activeFile.type;
     const p = activePath?.replace(/\\/g, '/') ?? '';
     if (p.includes('/cubes/') || p.startsWith('cubes/')) return 'cube';
     if (p.includes('/views/') || p.startsWith('views/')) return 'view';
     if (p.includes('/tables/') || p.startsWith('tables/')) return 'table';
     return 'unknown';
-  }, [activeFile?.type, activePath]);
+  }, [newDraft, activeFile?.type, activePath]);
 
   const showYamlPreview =
     effectiveFileType === 'cube' || effectiveFileType === 'view' || effectiveFileType === 'table';
@@ -202,7 +210,7 @@ function App() {
   }, []);
 
   const goToCatalog = () => {
-    if (isUnsaved) {
+    if (isUnsaved || newDraft) {
       const ok = confirm('当前文件未保存，切换将丢失修改，确认继续？');
       if (!ok) return;
     }
@@ -210,11 +218,15 @@ function App() {
     setActivePath(null);
     setContent('');
     setOriginalContent('');
+    setNewDraft(null);
     refreshCatalog();
   };
 
-  const openFile = async (path: string, opts?: { cubeIndex?: number; viewIndex?: number }) => {
-    if (isUnsaved) {
+  const openFile = async (
+    path: string,
+    opts?: { cubeIndex?: number; viewIndex?: number; skipUnsavedCheck?: boolean }
+  ) => {
+    if (!opts?.skipUnsavedCheck && isUnsaved) {
       const ok = confirm('当前文件未保存，切换将丢失修改，确认继续？');
       if (!ok) return;
     }
@@ -222,6 +234,7 @@ function App() {
     try {
       const data = await api.readFile(path);
       setActivePath(path);
+      setNewDraft(null);
       setContent(data.content);
       setOriginalContent(data.content);
       const fileMeta = files.find((f) => f.path === path);
@@ -261,6 +274,46 @@ function App() {
     openFile(entry.path);
   };
 
+  /** Table 详情：用当前 YAML 预填 Cube；若已有 Cube 的 sql_table/name 与表英文名一致则提示跳转 */
+  const handleCreateCubeFromTable = () => {
+    if (effectiveFileType !== 'table') return;
+    if (isUnsaved) {
+      const ok = confirm('当前 Table 未保存，将按编辑器中的内容检测并生成 Cube，是否继续？');
+      if (!ok) return;
+    }
+    const built = buildCubeYamlFromTableContent(content);
+    if (!built.ok) {
+      setError(built.error);
+      return;
+    }
+    const existing =
+      catalog?.cubes && catalog.cubes.length > 0
+        ? findCubeMatchingTableEnglishName(built.tableEnName, catalog.cubes)
+        : undefined;
+    if (existing) {
+      const ok = confirm(
+        `已存在与该表关联的 Cube（name：${existing.name || '—'}，sql_table：${
+          existing.sql_table || '—'
+        }，文件：${existing.path}）。是否打开编辑该 Cube？`
+      );
+      if (ok) {
+        setSection('cube');
+        void openFile(existing.path, { cubeIndex: existing.index, skipUnsavedCheck: true });
+      }
+      return;
+    }
+    setSection('cube');
+    setContent(built.yaml);
+    setOriginalContent('');
+    setActivePath(null);
+    setNewDraft({ kind: 'cube' });
+    setCubeIndex(0);
+    setViewIndex(0);
+    setEditMode('visual');
+    setViewMode('detail');
+    setError(null);
+  };
+
   const handleSaveTableMeta = async (
     entry: TableCatalogEntry,
     next: { title: string; description: string }
@@ -292,6 +345,45 @@ function App() {
   };
 
   const saveFile = async () => {
+    setError(null);
+    if (newDraft && !activePath) {
+      const kind = newDraft.kind;
+      const extracted = extractStructuredModelName(kind, content);
+      if (!extracted.ok) {
+        setError(extracted.error);
+        return;
+      }
+      const nameNorm = extracted.name.trim();
+      const folder = kind === 'cube' ? 'cubes' : kind === 'view' ? 'views' : 'tables';
+      const stem = sanitizeFilename(nameNorm, kind);
+      const targetPath = `${folder}/${stem}.yml`;
+      const list =
+        kind === 'cube' ? catalog?.cubes : kind === 'view' ? catalog?.views : catalog?.tables;
+      const dupByName = list?.find((e) => e.name.trim() === nameNorm);
+      const pathNorm = targetPath.replace(/\\/g, '/');
+      const fileOnDisk = files.some((f) => f.path.replace(/\\/g, '/') === pathNorm);
+      if (dupByName || fileOnDisk) {
+        const label = kind === 'cube' ? 'Cube' : kind === 'view' ? 'View' : 'Table';
+        const msg = dupByName
+          ? `已存在名为「${nameNorm}」的${label}（${dupByName.path}），保存将覆盖该文件，是否继续？`
+          : `文件 ${targetPath} 已存在，是否覆盖？`;
+        if (!confirm(msg)) return;
+      }
+      setLoading(true);
+      try {
+        await api.writeFile(targetPath, content);
+        setActivePath(targetPath);
+        setNewDraft(null);
+        setOriginalContent(content);
+        await refreshFiles();
+        await refreshCatalog();
+      } catch (e: any) {
+        setError(e.message);
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
     if (!activePath) return;
     setLoading(true);
     try {
@@ -356,6 +448,17 @@ function App() {
   };
 
   const deleteActiveFile = async () => {
+    if (newDraft) {
+      const ok = confirm('放弃当前新建？未保存内容将丢失。');
+      if (!ok) return;
+      setViewMode('catalog');
+      setActivePath(null);
+      setContent('');
+      setOriginalContent('');
+      setNewDraft(null);
+      refreshCatalog();
+      return;
+    }
     if (!activePath) return;
     const ok = confirm(`确认删除 ${activePath} 吗？`);
     if (!ok) return;
@@ -372,42 +475,42 @@ function App() {
     }
   };
 
-  const createFile = () => {
-    const defaultDir =
-      section === 'cube' ? 'cubes/' : section === 'view' ? 'views/' : section === 'table' ? 'tables/' : '';
-    const name = prompt(
-      '请输入文件名（如 cubes/orders.yml、tables/orders_raw.yml）：',
-      defaultDir
-    );
-    if (!name) return;
-    const path = name.endsWith('.yml') || name.endsWith('.yaml') ? name : `${name}.yml`;
-    setActivePath(path);
-    const p = path.replace(/\\/g, '/');
-    let defaultContent: string;
-    if (p.startsWith('tables/') || p.includes('/tables/') || p.includes('table')) {
-      defaultContent = `table:\n  name: \n  fields: []\n`;
-    } else if (p.startsWith('views/') || p.includes('/views/') || p.includes('view')) {
-      defaultContent = `views:\n  - name: \n`;
-    } else {
-      defaultContent = `cubes:\n  - name: \n`;
-    }
-    setContent(defaultContent);
+  const startNewDraft = (kind: CatalogSection) => {
+    const templates: Record<CatalogSection, string> = {
+      cube: `cubes:\n  - name: \n`,
+      view: `views:\n  - name: \n`,
+      table: `table:\n  name: \n  fields: []\n`,
+    };
+    setSection(kind);
+    setContent(templates[kind]);
     setOriginalContent('');
-    const isStructured =
-      p.includes('cubes/') ||
-      p.includes('views/') ||
-      p.includes('tables/') ||
-      p.includes('view') ||
-      p.includes('cube') ||
-      p.includes('table');
-    setEditMode(isStructured ? 'visual' : 'source');
+    setActivePath(null);
+    setNewDraft({ kind });
+    setEditMode('visual');
     setCubeIndex(0);
     setViewIndex(0);
     setViewMode('detail');
+    setError(null);
+  };
+
+  const beginCreateFlow = () => {
+    if (viewMode === 'detail') {
+      if (isUnsaved || newDraft) {
+        if (!confirm('当前有未保存内容，继续将丢失修改，是否继续？')) return;
+      } else if (activePath) {
+        if (!confirm('将关闭当前文件并开始新建，是否继续？')) return;
+      }
+    }
+    setCreateModalOpen(true);
+  };
+
+  const chooseCreateKind = (kind: CatalogSection) => {
+    setCreateModalOpen(false);
+    startNewDraft(kind);
   };
 
   const importFile = async () => {
-    if (isUnsaved) {
+    if (isUnsaved || newDraft) {
       const ok = confirm('当前文件未保存，切换将丢失修改，确认继续？');
       if (!ok) return;
     }
@@ -442,6 +545,7 @@ function App() {
       const first = writes[0];
       const { content: yaml } = await api.readFile(first.path);
       setActivePath(first.path);
+      setNewDraft(null);
       setContent(yaml);
       setOriginalContent(yaml);
       const p = first.path.replace(/\\/g, '/');
@@ -607,7 +711,7 @@ function App() {
   const handleSelectSection = (s: CatalogSection) => {
     setSection(s);
     if (viewMode !== 'catalog') {
-      if (isUnsaved) {
+      if (isUnsaved || newDraft) {
         const ok = confirm('当前文件未保存，切换将丢失修改，确认继续？');
         if (!ok) return;
       }
@@ -615,6 +719,7 @@ function App() {
       setActivePath(null);
       setContent('');
       setOriginalContent('');
+      setNewDraft(null);
     }
   };
 
@@ -625,7 +730,7 @@ function App() {
           <h1>Cube Core IDE</h1>
           <div className="dir">{import.meta.env.VITE_CUBE_DIR || 'demo-models'}</div>
           <div className="sidebar-actions">
-            <button type="button" className="create-btn sidebar-btn-new" onClick={createFile}>
+            <button type="button" className="create-btn sidebar-btn-new" onClick={beginCreateFlow}>
               + 新建
             </button>
             <div className="sidebar-io">
@@ -679,11 +784,20 @@ function App() {
             <span className="sidebar-nav-count">{tableCount}</span>
           </button>
         </nav>
-        {viewMode === 'detail' && activePath && (
+        {viewMode === 'detail' && (activePath || newDraft) && (
           <div className="sidebar-current">
             <div className="sidebar-current-title">当前编辑</div>
-            <div className="sidebar-current-path" title={activePath}>
-              {activePath}
+            <div
+              className="sidebar-current-path"
+              title={activePath || (newDraft ? '未保存的新建' : '')}
+            >
+              {newDraft
+                ? `新建 ${
+                    newDraft.kind === 'cube' ? 'Cube' : newDraft.kind === 'view' ? 'View' : 'Table'
+                  }（保存至 ${
+                    newDraft.kind === 'cube' ? 'cubes' : newDraft.kind === 'view' ? 'views' : 'tables'
+                  } 目录，文件名为 YAML 中的 name）`
+                : activePath}
             </div>
           </div>
         )}
@@ -714,7 +828,7 @@ function App() {
             onSaveTableMeta={handleSaveTableMeta}
             savingTablePath={savingTablePath}
           />
-        ) : activePath ? (
+        ) : activePath || newDraft ? (
           <>
             <div className="toolbar">
               <div className="toolbar-left">
@@ -726,11 +840,28 @@ function App() {
                 >
                   ← 列表
                 </button>
-                <span className="filename">{activeFile?.name || activePath}</span>
+                <span className="filename">
+                  {newDraft
+                    ? `新建 ${
+                        newDraft.kind === 'cube' ? 'Cube' : newDraft.kind === 'view' ? 'View' : 'Table'
+                      }`
+                    : activeFile?.name || activePath}
+                </span>
                 <span className={`status ${isUnsaved ? 'unsaved' : ''}`}>
                   {isUnsaved ? '未保存' : '已保存'}
                 </span>
                 {hotReloadEvent && <span className="hot-reload-badge">{hotReloadEvent}</span>}
+                {effectiveFileType === 'table' && (
+                  <button
+                    type="button"
+                    className="toolbar-from-table-cube"
+                    onClick={handleCreateCubeFromTable}
+                    disabled={loading}
+                    title="用当前表预填 Cube（英文名、中文名、描述与字段维度），进入 Cube 编辑"
+                  >
+                    创建 Cube
+                  </button>
+                )}
               </div>
               <div className="toolbar-right">
                 {showYamlPreview && (
@@ -914,6 +1045,50 @@ function App() {
           <div className="empty-state">请选择左侧分类查看列表</div>
         )}
       </main>
+
+      {createModalOpen && (
+        <div
+          className="create-modal-overlay"
+          onClick={() => setCreateModalOpen(false)}
+          role="presentation"
+        >
+          <div
+            className="create-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="create-modal-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="create-modal-title" className="create-modal-title">
+              新建类型
+            </h2>
+            <p className="create-modal-hint">选择后进入编辑页，填写 name 等信息后点击保存，将写入对应目录下以 name 命名的 yml 文件。</p>
+            <div className="create-modal-actions">
+              <button type="button" className="create-modal-choice" onClick={() => chooseCreateKind('cube')}>
+                <span className="create-modal-choice-icon" aria-hidden>
+                  🧊
+                </span>
+                <span className="create-modal-choice-label">Cube</span>
+              </button>
+              <button type="button" className="create-modal-choice" onClick={() => chooseCreateKind('view')}>
+                <span className="create-modal-choice-icon" aria-hidden>
+                  👁
+                </span>
+                <span className="create-modal-choice-label">View</span>
+              </button>
+              <button type="button" className="create-modal-choice" onClick={() => chooseCreateKind('table')}>
+                <span className="create-modal-choice-icon" aria-hidden>
+                  🗄
+                </span>
+                <span className="create-modal-choice-label">Table</span>
+              </button>
+            </div>
+            <button type="button" className="create-modal-cancel" onClick={() => setCreateModalOpen(false)}>
+              取消
+            </button>
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="error-toast" onClick={() => setError(null)}>

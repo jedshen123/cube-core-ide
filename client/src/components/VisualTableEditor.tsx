@@ -108,6 +108,15 @@ export function VisualTableEditor({ content, onChange, activePath }: Props) {
               spellCheck
             />
           </Field>
+          <Field label="血缘" className="visual-grid-span2">
+            <ExpandableTextarea
+              className={SQL_TEXTAREA}
+              value={form.lineage}
+              onChange={(v) => patch({ ...form, lineage: v })}
+              minRowsFocused={4}
+              spellCheck
+            />
+          </Field>
         </div>
       </section>
 

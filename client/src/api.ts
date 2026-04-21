@@ -33,6 +33,8 @@ export interface TableCatalogEntry {
   name: string;
   title: string;
   description: string;
+  /** 数据血缘说明（多行） */
+  lineage: string;
   sql_table: string;
   schema: string;
   database: string;
