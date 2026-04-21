@@ -147,8 +147,33 @@ body {
 
 .sidebar-actions {
   display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
   gap: 6px;
   margin-top: 12px;
+}
+
+.sidebar-btn-new {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+
+/* 与上方「新建」同宽，左右与侧栏内边距对齐（与主区分隔线齐平） */
+.sidebar-io {
+  display: flex;
+  gap: 4px;
+  width: 100%;
+  flex: 1 1 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.sidebar-io .create-btn--secondary {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 5px 8px;
+  font-size: 11px;
+  line-height: 1.2;
 }
 
 .create-btn {
@@ -731,6 +756,10 @@ body {
   overflow: hidden;
 }
 
+.catalog-table-wrapper--resizable {
+  overflow-x: auto;
+}
+
 .catalog-table {
   width: 100%;
   table-layout: fixed;
@@ -738,11 +767,16 @@ body {
   font-size: 13px;
 }
 
+.catalog-table--resizable {
+  min-width: 720px;
+}
+
 .catalog-table thead {
   background: var(--bg-base);
 }
 
 .catalog-table th {
+  position: relative;
   text-align: left;
   padding: 10px 14px;
   font-size: 11px;
@@ -752,6 +786,44 @@ body {
   letter-spacing: 0.5px;
   border-bottom: 1px solid var(--border-color);
   white-space: nowrap;
+}
+
+.catalog-th-inner {
+  position: relative;
+  display: block;
+  padding-right: 4px;
+}
+
+.catalog-th-index .catalog-th-inner {
+  padding-right: 0;
+}
+
+.resizable-col-handle {
+  position: absolute;
+  right: -3px;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  z-index: 2;
+  cursor: col-resize;
+  touch-action: none;
+  border-radius: 2px;
+}
+
+.resizable-col-handle::after {
+  content: '';
+  position: absolute;
+  right: 3px;
+  top: 20%;
+  bottom: 20%;
+  width: 1px;
+  background: var(--border-color);
+  opacity: 0.9;
+}
+
+.resizable-col-handle:hover::after {
+  background: var(--primary);
+  opacity: 1;
 }
 
 .catalog-table td {
@@ -769,6 +841,25 @@ body {
 
 .catalog-table--tables .catalog-td-table-name {
   min-width: 0;
+}
+
+.catalog-td-name-en {
+  min-width: 0;
+}
+
+.catalog-td-name-en .catalog-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.catalog-td-name-en .catalog-name .catalog-icon {
+  flex-shrink: 0;
 }
 
 .catalog-table tbody tr:last-child td {

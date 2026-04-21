@@ -14,16 +14,19 @@ import { VisualTableEditor } from './components/VisualTableEditor';
 import { VisualViewEditor } from './components/VisualViewEditor';
 import { CatalogPage, type CatalogSection } from './components/CatalogPage';
 import {
+  buildImportSplitWrites,
+  collectCubeRecordsFromYamlRoot,
+  collectTableRecordsFromYamlRoot,
+  collectViewRecordsFromYamlRoot,
   downloadTextFile,
-  extractCubesFromText,
-  extractTablesFromText,
-  extractViewsFromText,
   parseCubeFile,
   parseTableFile,
   parseViewFile,
   pickYamlFile,
   sanitizeFilename,
   stringifyDoc,
+  stringifyExportBundle,
+  uniquePathsInOrder,
 } from './modelYaml';
 import { applyTableFormToContent, tableToFormState } from './visualModel/tableForm';
 import './visual-editor.css';
@@ -411,66 +414,41 @@ function App() {
     const picked = await pickYamlFile();
     if (!picked) return;
 
-    const asCube = extractCubesFromText(picked.text);
-    const asView = extractViewsFromText(picked.text);
-    const asTable = extractTablesFromText(picked.text);
-    const hasCube = asCube.ok && asCube.cubes.length > 0;
-    const hasView = asView.ok && asView.views.length > 0;
-    const hasTable = asTable.ok && asTable.tables.length > 0;
-    let kind: 'cube' | 'view' | 'table' | 'unknown' = 'unknown';
-    const kinds = [hasCube ? 'cube' : null, hasView ? 'view' : null, hasTable ? 'table' : null].filter(
-      Boolean
-    ) as ('cube' | 'view' | 'table')[];
-    if (kinds.length === 1) {
-      kind = kinds[0];
-    } else if (kinds.length > 1) {
-      const ans = prompt(
-        `文件同时包含多种模型：${kinds.join(', ')}。请输入要导入的类型（cube/view/table）：`,
-        kinds[0]
-      );
-      const normalized = (ans || '').trim().toLowerCase();
-      if (normalized === 'cube' || normalized === 'view' || normalized === 'table') {
-        kind = normalized;
-      } else {
-        kind = kinds[0];
-      }
+    const plan = buildImportSplitWrites(picked.text);
+    if ('error' in plan) {
+      setError(plan.error);
+      return;
     }
-
-    const baseName = picked.name.replace(/\.(ya?ml)$/i, '');
-    const safeBase = sanitizeFilename(baseName, kind === 'unknown' ? 'file' : kind);
-    const prefix =
-      kind === 'view'
-        ? 'views/'
-        : kind === 'cube'
-        ? 'cubes/'
-        : kind === 'table'
-        ? 'tables/'
-        : '';
-    const defaultPath = `${prefix}${safeBase}.yml`;
-
-    const destInput = prompt('导入到项目的哪个路径？', defaultPath);
-    if (!destInput) return;
-    const destPath = destInput.endsWith('.yml') || destInput.endsWith('.yaml') ? destInput : `${destInput}.yml`;
-
-    const exists = files.some((f) => f.path === destPath);
-    if (exists) {
-      const ok = confirm(`${destPath} 已存在，覆盖？`);
-      if (!ok) return;
+    const writes = plan;
+    const conflicts = writes.filter((w) => files.some((f) => f.path === w.path));
+    const lines = writes.map((w) => `${w.path}（${w.kind}）`);
+    const maxLines = 24;
+    const listText =
+      lines.length <= maxLines ? lines.join('\n') : `${lines.slice(0, maxLines).join('\n')}\n…共 ${lines.length} 个文件`;
+    let msg = `从「${picked.name}」拆分写入 ${writes.length} 个文件（路径与文件名为各条目的 name，后缀 .yml）：\n\n${listText}`;
+    if (conflicts.length > 0) {
+      msg += `\n\n其中 ${conflicts.length} 个路径已存在，将被覆盖。`;
     }
+    msg += `\n\n确定导入？`;
+    if (!confirm(msg)) return;
 
     setLoading(true);
     try {
-      await api.writeFile(destPath, picked.text);
+      for (const w of writes) {
+        await api.writeFile(w.path, w.yaml);
+      }
       await refreshFiles();
       await refreshCatalog();
-      setActivePath(destPath);
-      setContent(picked.text);
-      setOriginalContent(picked.text);
-      const p = destPath.replace(/\\/g, '/');
+      const first = writes[0];
+      const { content: yaml } = await api.readFile(first.path);
+      setActivePath(first.path);
+      setContent(yaml);
+      setOriginalContent(yaml);
+      const p = first.path.replace(/\\/g, '/');
       const isStructured =
-        kind === 'cube' ||
-        kind === 'view' ||
-        kind === 'table' ||
+        first.kind === 'cube' ||
+        first.kind === 'view' ||
+        first.kind === 'table' ||
         p.includes('/cubes/') ||
         p.startsWith('cubes/') ||
         p.includes('/views/') ||
@@ -481,9 +459,76 @@ function App() {
       setCubeIndex(0);
       setViewIndex(0);
       setViewMode('detail');
+      setSection(
+        first.kind === 'cube' ? 'cube' : first.kind === 'view' ? 'view' : 'table'
+      );
       setError(null);
     } catch (e: any) {
       setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const exportFullCatalogAsCubeYml = async () => {
+    setError(null);
+    setLoading(true);
+    try {
+      const cat = await api.listCatalog();
+      const cubePaths = uniquePathsInOrder(cat.cubes);
+      const viewPaths = uniquePathsInOrder(cat.views);
+      const tablePaths = uniquePathsInOrder(cat.tables);
+
+      const allCubes: Record<string, unknown>[] = [];
+      for (const p of cubePaths) {
+        try {
+          const { content } = await api.readFile(p);
+          const doc = YAML.parse(content) as Record<string, unknown> | null;
+          if (doc && typeof doc === 'object') {
+            allCubes.push(...collectCubeRecordsFromYamlRoot(doc));
+          }
+        } catch {
+          /* 跳过无法解析的 cube 文件 */
+        }
+      }
+
+      const allViews: Record<string, unknown>[] = [];
+      for (const p of viewPaths) {
+        try {
+          const { content } = await api.readFile(p);
+          const doc = YAML.parse(content) as Record<string, unknown> | null;
+          if (doc && typeof doc === 'object') {
+            allViews.push(...collectViewRecordsFromYamlRoot(doc));
+          }
+        } catch {
+          /* 跳过无法解析的 view 文件 */
+        }
+      }
+
+      const allTables: Record<string, unknown>[] = [];
+      for (const p of tablePaths) {
+        const { content } = await api.readFile(p);
+        try {
+          const doc = YAML.parse(content) as Record<string, unknown> | null;
+          if (doc && typeof doc === 'object') {
+            allTables.push(...collectTableRecordsFromYamlRoot(doc));
+          }
+        } catch {
+          /* 跳过无法解析的表文件 */
+        }
+      }
+
+      if (allCubes.length === 0 && allViews.length === 0 && allTables.length === 0) {
+        alert('当前项目中没有可导出的 cube、view 或 table。');
+        return;
+      }
+
+      downloadTextFile(
+        'cube.yml',
+        stringifyExportBundle({ cubes: allCubes, views: allViews, tables: allTables })
+      );
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
@@ -580,10 +625,29 @@ function App() {
           <h1>Cube Core IDE</h1>
           <div className="dir">{import.meta.env.VITE_CUBE_DIR || 'demo-models'}</div>
           <div className="sidebar-actions">
-            <button className="create-btn" onClick={createFile}>+ 新建文件</button>
-            <button className="create-btn create-btn--secondary" onClick={importFile} title="从本地 YAML 文件导入为新的 cube/view 文件">
-              导入…
+            <button type="button" className="create-btn sidebar-btn-new" onClick={createFile}>
+              + 新建
             </button>
+            <div className="sidebar-io">
+              <button
+                type="button"
+                className="create-btn create-btn--secondary"
+                onClick={importFile}
+                disabled={loading}
+                title="从本地 YAML 导入：可按 cubes/views/table(s) 拆成多个文件，写入 cubes/、views/、tables/，文件名取各条目的 name"
+              >
+                导入
+              </button>
+              <button
+                type="button"
+                className="create-btn create-btn--secondary"
+                onClick={exportFullCatalogAsCubeYml}
+                disabled={loading}
+                title="导出当前项目中全部 cube、view、table 为一份 cube.yml，可用「导入」再拆分落盘"
+              >
+                导出
+              </button>
+            </div>
           </div>
         </div>
         <nav className="sidebar-nav" aria-label="模型分类">

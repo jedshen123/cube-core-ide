@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type LegacyRef, type ReactNode } from 'react';
+import { useResizableGridWeights } from '../hooks/useResizableGridWeights';
 import { parseTableFile } from '../modelYaml';
 import {
   applyTableFormToContent,
@@ -26,6 +27,10 @@ export function VisualTableEditor({ content, onChange, activePath }: Props) {
   const skipSync = useRef(false);
   const contentRef = useRef(content);
   contentRef.current = content;
+
+  const tableFieldsGrid = useResizableGridWeights('cube-core-ide.visual.table.fields', [
+    1, 1, 0.85, 1.1, 1,
+  ]);
 
   const ensureSize = (arr: boolean[], size: number): boolean[] => {
     if (arr.length === size) return arr;
@@ -116,6 +121,7 @@ export function VisualTableEditor({ content, onChange, activePath }: Props) {
         {form.fields.length > 0 && (
           <ListHeader
             columns={['字段ID', '字段名称', '字段类型', '字段描述', '枚举值']}
+            grid={tableFieldsGrid}
           />
         )}
 
@@ -139,7 +145,10 @@ export function VisualTableEditor({ content, onChange, activePath }: Props) {
                   <span className="visual-card-chevron">{expanded ? '▾' : '▸'}</span>
                   <span className="visual-card-index">{i + 1}</span>
                 </button>
-                <div className="visual-card-summary-fields visual-card-summary-fields--five">
+                <div
+                  className="visual-card-summary-fields visual-resizable-fields-grid"
+                  style={{ gridTemplateColumns: tableFieldsGrid.gridTemplateColumns }}
+                >
                   <input
                     className="visual-input visual-input--compact"
                     placeholder="ID"
@@ -285,16 +294,31 @@ export function VisualTableEditor({ content, onChange, activePath }: Props) {
   );
 }
 
-function ListHeader({ columns }: { columns: string[] }) {
-  const gridClass =
-    columns.length >= 5 ? 'visual-card-summary-fields--five' : 'visual-card-summary-fields--four';
+type GridApi = ReturnType<typeof useResizableGridWeights>;
+
+function ListHeader({ columns, grid }: { columns: string[]; grid: GridApi }) {
+  const showHandles = columns.length > 1;
   return (
     <div className="visual-list-header">
       <span className="visual-list-header-index">序号</span>
-      <div className={`visual-list-header-fields visual-card-summary-fields ${gridClass}`}>
-        {columns.map((c) => (
-          <span key={c} className="visual-list-header-cell">
+      <div
+        ref={grid.gridRef as LegacyRef<HTMLDivElement>}
+        className="visual-list-header-fields visual-card-summary-fields visual-resizable-fields-grid"
+        style={{ gridTemplateColumns: grid.gridTemplateColumns }}
+      >
+        {columns.map((c, i) => (
+          <span
+            key={c}
+            className={`visual-list-header-cell ${showHandles ? 'visual-list-header-cell--resizable' : ''}`}
+          >
             {c}
+            {showHandles && i < columns.length - 1 && (
+              <span
+                className="resizable-col-handle resizable-col-handle--grid"
+                onPointerDown={grid.onResizePointerDown(i)}
+                aria-hidden
+              />
+            )}
           </span>
         ))}
       </div>

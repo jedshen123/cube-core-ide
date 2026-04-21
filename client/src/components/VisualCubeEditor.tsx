@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type LegacyRef, type ReactNode } from 'react';
+import { useResizableGridWeights } from '../hooks/useResizableGridWeights';
 import { parseCubeFile } from '../modelYaml';
 import {
   applyCubeFormToContent,
@@ -105,6 +106,10 @@ export function VisualCubeEditor({ content, cubeIndex, onCubeIndexChange, onChan
   const skipSync = useRef(false);
   const contentRef = useRef(content);
   contentRef.current = content;
+
+  const dimensionGrid = useResizableGridWeights('cube-core-ide.visual.cube.dimensions', [1.2, 1.5, 1]);
+  const measureGrid = useResizableGridWeights('cube-core-ide.visual.cube.measures', [1.2, 1.5, 1]);
+  const joinGrid = useResizableGridWeights('cube-core-ide.visual.cube.joins', [1, 1.2]);
 
   const ensureSize = (arr: boolean[], size: number): boolean[] => {
     if (arr.length === size) return arr;
@@ -240,7 +245,7 @@ export function VisualCubeEditor({ content, cubeIndex, onCubeIndexChange, onChan
       <section className="visual-section">
         <h3 className="visual-section-title">Dimensions</h3>
         {form.dimensions.length > 0 && (
-          <ListHeader columns={['name', 'title', 'type']} />
+          <ListHeader columns={['name', 'title', 'type']} grid={dimensionGrid} />
         )}
         {form.dimensions.map((row, i) => {
           const expanded = !!dimExpanded[i];
@@ -257,7 +262,10 @@ export function VisualCubeEditor({ content, cubeIndex, onCubeIndexChange, onChan
                   <span className="visual-card-chevron">{expanded ? '▾' : '▸'}</span>
                   <span className="visual-card-index">{i + 1}</span>
                 </button>
-                <div className="visual-card-summary-fields">
+                <div
+                  className="visual-card-summary-fields visual-resizable-fields-grid"
+                  style={{ gridTemplateColumns: dimensionGrid.gridTemplateColumns }}
+                >
                   <input
                     className="visual-input visual-input--compact"
                     placeholder="name"
@@ -376,7 +384,7 @@ export function VisualCubeEditor({ content, cubeIndex, onCubeIndexChange, onChan
           未在表单中编辑的字段（如 <code>filters</code>、<code>meta</code> 中除 <code>ai_context</code> 外的键）会从原 YAML 保留。
         </p>
         {form.measures.length > 0 && (
-          <ListHeader columns={['name', 'title', 'type']} />
+          <ListHeader columns={['name', 'title', 'type']} grid={measureGrid} />
         )}
         {form.measures.map((row, i) => {
           const expanded = !!measureExpanded[i];
@@ -393,7 +401,10 @@ export function VisualCubeEditor({ content, cubeIndex, onCubeIndexChange, onChan
                   <span className="visual-card-chevron">{expanded ? '▾' : '▸'}</span>
                   <span className="visual-card-index">{i + 1}</span>
                 </button>
-                <div className="visual-card-summary-fields">
+                <div
+                  className="visual-card-summary-fields visual-resizable-fields-grid"
+                  style={{ gridTemplateColumns: measureGrid.gridTemplateColumns }}
+                >
                   <input
                     className="visual-input visual-input--compact"
                     placeholder="name"
@@ -546,7 +557,7 @@ export function VisualCubeEditor({ content, cubeIndex, onCubeIndexChange, onChan
       <section className="visual-section">
         <h3 className="visual-section-title">Joins</h3>
         {form.joins.length > 0 && (
-          <ListHeader columns={['name', 'relationship']} variant="two" />
+          <ListHeader columns={['name', 'relationship']} variant="two" grid={joinGrid} />
         )}
         {form.joins.map((row, i) => {
           const expanded = !!joinExpanded[i];
@@ -563,7 +574,10 @@ export function VisualCubeEditor({ content, cubeIndex, onCubeIndexChange, onChan
                   <span className="visual-card-chevron">{expanded ? '▾' : '▸'}</span>
                   <span className="visual-card-index">{i + 1}</span>
                 </button>
-                <div className="visual-card-summary-fields visual-card-summary-fields--two">
+                <div
+                  className="visual-card-summary-fields visual-resizable-fields-grid"
+                  style={{ gridTemplateColumns: joinGrid.gridTemplateColumns }}
+                >
                   <input
                     className="visual-input visual-input--compact"
                     placeholder="name（被 join 的 cube 名）"
@@ -631,26 +645,50 @@ export function VisualCubeEditor({ content, cubeIndex, onCubeIndexChange, onChan
   );
 }
 
+type GridApi = ReturnType<typeof useResizableGridWeights>;
+
 function ListHeader({
   columns,
   variant = 'default',
+  grid,
 }: {
   columns: string[];
   variant?: 'default' | 'two' | 'single';
+  grid?: GridApi;
 }) {
-  const fieldsClass = `visual-list-header-fields visual-card-summary-fields${
-    variant === 'two'
-      ? ' visual-card-summary-fields--two'
-      : variant === 'single'
-        ? ' visual-card-summary-fields--single'
-        : ''
-  }`;
+  const base = 'visual-list-header-fields visual-card-summary-fields';
+  const fieldsClass = grid
+    ? `${base} visual-resizable-fields-grid`
+    : `${base}${
+        variant === 'two'
+          ? ' visual-card-summary-fields--two'
+          : variant === 'single'
+            ? ' visual-card-summary-fields--single'
+            : ''
+      }`;
+  const showHandles = Boolean(grid) && columns.length > 1;
   return (
     <div className="visual-list-header">
       <span className="visual-list-header-index">序号</span>
-      <div className={fieldsClass}>
-        {columns.map((c) => (
-          <span key={c} className="visual-list-header-cell">{c}</span>
+      <div
+        ref={grid ? (grid.gridRef as LegacyRef<HTMLDivElement>) : undefined}
+        className={fieldsClass}
+        style={grid ? { gridTemplateColumns: grid.gridTemplateColumns } : undefined}
+      >
+        {columns.map((c, i) => (
+          <span
+            key={c}
+            className={`visual-list-header-cell ${showHandles ? 'visual-list-header-cell--resizable' : ''}`}
+          >
+            {c}
+            {showHandles && i < columns.length - 1 && (
+              <span
+                className="resizable-col-handle resizable-col-handle--grid"
+                onPointerDown={grid!.onResizePointerDown(i)}
+                aria-hidden
+              />
+            )}
+          </span>
         ))}
       </div>
       <span className="visual-list-header-action" aria-hidden />

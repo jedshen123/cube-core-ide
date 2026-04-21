@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type SyntheticEvent } from 'react';
 import { ExpandableTextarea } from './ExpandableTextarea';
+import { ResizableColumnTable } from './ResizableColumnTable';
 import type {
   CatalogResponse,
   CubeCatalogEntry,
@@ -75,7 +76,7 @@ function CatalogTableRow({
   return (
     <tr className="catalog-row catalog-row--table" onClick={onOpen} title="点击查看详情；标题与描述可悬停编辑">
       <td className="catalog-td-index num">{index}</td>
-      <td className="catalog-td-table-name">
+      <td className="catalog-td-table-name catalog-td-name-en">
         <span className="catalog-name">
           <span className="catalog-icon">🗄</span>
           {dash(entry.name)}
@@ -139,136 +140,137 @@ export function CatalogPage({
   } as const;
 
   const renderCubes = () => (
-    <div className="catalog-table-wrapper">
-      <table className="catalog-table">
-        <thead>
-          <tr>
-            <th className="catalog-th-index">序号</th>
-            <th style={{ width: '20%' }}>Name</th>
-            <th style={{ width: '20%' }}>Title</th>
-            <th>Description</th>
-          </tr>
-        </thead>
-        <tbody>
-          {filteredCubes.map((c, displayIndex) => (
-            <tr
-              key={`${c.path}#${c.index}`}
-              className="catalog-row"
-              onClick={() => onOpenCube(c)}
-              title="点击查看详情"
+    <ResizableColumnTable
+      storageKey="cube-core-ide.catalog.cubes.v1"
+      columns={[
+        { id: 'idx', header: '序号', thClassName: 'catalog-th-index' },
+        { id: 'name', header: 'Name' },
+        { id: 'title', header: 'Title' },
+        { id: 'desc', header: 'Description' },
+      ]}
+      defaultPercents={[6, 24, 22, 48]}
+      minPercents={[4, 12, 10, 15]}
+    >
+      <tbody>
+        {filteredCubes.map((c, displayIndex) => (
+          <tr
+            key={`${c.path}#${c.index}`}
+            className="catalog-row"
+            onClick={() => onOpenCube(c)}
+            title="点击查看详情"
+          >
+            <td className="catalog-td-index num">{displayIndex + 1}</td>
+            <td className="catalog-td-name-en">
+              <span className="catalog-name">
+                <span className="catalog-icon">🧊</span>
+                {dash(c.name)}
+              </span>
+            </td>
+            <td>{dash(c.title)}</td>
+            <td
+              className="catalog-desc"
+              title={c.description?.trim() ? c.description : undefined}
             >
-              <td className="catalog-td-index num">{displayIndex + 1}</td>
-              <td>
-                <span className="catalog-name">
-                  <span className="catalog-icon">🧊</span>
-                  {dash(c.name)}
-                </span>
-              </td>
-              <td>{dash(c.title)}</td>
-              <td
-                className="catalog-desc"
-                title={c.description?.trim() ? c.description : undefined}
-              >
-                <span className="catalog-desc-inner">{dash(c.description)}</span>
-              </td>
-            </tr>
-          ))}
-          {filteredCubes.length === 0 && (
-            <tr>
-              <td colSpan={4} className="catalog-empty">
-                {cubes.length === 0 ? '当前目录下没有 cube' : '没有匹配的 cube'}
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
-    </div>
+              <span className="catalog-desc-inner">{dash(c.description)}</span>
+            </td>
+          </tr>
+        ))}
+        {filteredCubes.length === 0 && (
+          <tr>
+            <td colSpan={4} className="catalog-empty">
+              {cubes.length === 0 ? '当前目录下没有 cube' : '没有匹配的 cube'}
+            </td>
+          </tr>
+        )}
+      </tbody>
+    </ResizableColumnTable>
   );
 
   const renderViews = () => (
-    <div className="catalog-table-wrapper">
-      <table className="catalog-table">
-        <thead>
-          <tr>
-            <th className="catalog-th-index">序号</th>
-            <th style={{ width: '20%' }}>Name</th>
-            <th style={{ width: '20%' }}>Title</th>
-            <th>Description</th>
-          </tr>
-        </thead>
-        <tbody>
-          {filteredViews.map((v, displayIndex) => (
-            <tr
-              key={`${v.path}#${v.index}`}
-              className="catalog-row"
-              onClick={() => onOpenView(v)}
-              title="点击查看详情"
+    <ResizableColumnTable
+      storageKey="cube-core-ide.catalog.views.v1"
+      columns={[
+        { id: 'idx', header: '序号', thClassName: 'catalog-th-index' },
+        { id: 'name', header: 'Name' },
+        { id: 'title', header: 'Title' },
+        { id: 'desc', header: 'Description' },
+      ]}
+      defaultPercents={[6, 24, 22, 48]}
+      minPercents={[4, 12, 10, 15]}
+    >
+      <tbody>
+        {filteredViews.map((v, displayIndex) => (
+          <tr
+            key={`${v.path}#${v.index}`}
+            className="catalog-row"
+            onClick={() => onOpenView(v)}
+            title="点击查看详情"
+          >
+            <td className="catalog-td-index num">{displayIndex + 1}</td>
+            <td className="catalog-td-name-en">
+              <span className="catalog-name">
+                <span className="catalog-icon">👁</span>
+                {dash(v.name)}
+              </span>
+            </td>
+            <td>{dash(v.title)}</td>
+            <td
+              className="catalog-desc"
+              title={v.description?.trim() ? v.description : undefined}
             >
-              <td className="catalog-td-index num">{displayIndex + 1}</td>
-              <td>
-                <span className="catalog-name">
-                  <span className="catalog-icon">👁</span>
-                  {dash(v.name)}
-                </span>
-              </td>
-              <td>{dash(v.title)}</td>
-              <td
-                className="catalog-desc"
-                title={v.description?.trim() ? v.description : undefined}
-              >
-                <span className="catalog-desc-inner">{dash(v.description)}</span>
-              </td>
-            </tr>
-          ))}
-          {filteredViews.length === 0 && (
-            <tr>
-              <td colSpan={4} className="catalog-empty">
-                {views.length === 0 ? '当前目录下没有 view' : '没有匹配的 view'}
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
-    </div>
+              <span className="catalog-desc-inner">{dash(v.description)}</span>
+            </td>
+          </tr>
+        ))}
+        {filteredViews.length === 0 && (
+          <tr>
+            <td colSpan={4} className="catalog-empty">
+              {views.length === 0 ? '当前目录下没有 view' : '没有匹配的 view'}
+            </td>
+          </tr>
+        )}
+      </tbody>
+    </ResizableColumnTable>
   );
 
   const renderTables = () => (
-    <div className="catalog-table-wrapper">
-      <table className="catalog-table catalog-table--tables">
-        <thead>
+    <ResizableColumnTable
+      storageKey="cube-core-ide.catalog.tables.v1"
+      className="catalog-table--tables"
+      columns={[
+        { id: 'idx', header: '序号', thClassName: 'catalog-th-index' },
+        { id: 'en', header: '表英文名' },
+        { id: 'cn', header: '表中文名' },
+        { id: 'desc', header: '描述' },
+        { id: 'fields', header: '字段数' },
+      ]}
+      defaultPercents={[5, 32, 18, 35, 10]}
+      minPercents={[4, 16, 10, 12, 5]}
+    >
+      <tbody>
+        {filteredTables.map((t, displayIndex) => (
+          <CatalogTableRow
+            key={`${t.path}#${t.name}`}
+            index={displayIndex + 1}
+            entry={t}
+            disabled={!onSaveTableMeta || savingTablePath === t.path}
+            onOpen={() => onOpenTable(t)}
+            onSave={
+              onSaveTableMeta
+                ? (next) => onSaveTableMeta(t, next)
+                : async () => {}
+            }
+          />
+        ))}
+        {filteredTables.length === 0 && (
           <tr>
-            <th className="catalog-th-index">序号</th>
-            <th style={{ width: '18%' }}>表英文名</th>
-            <th style={{ width: '18%' }}>表中文名</th>
-            <th>描述</th>
-            <th style={{ width: '10%' }}>字段数</th>
+            <td colSpan={5} className="catalog-empty">
+              {tables.length === 0 ? '当前目录下没有 table' : '没有匹配的 table'}
+            </td>
           </tr>
-        </thead>
-        <tbody>
-          {filteredTables.map((t, displayIndex) => (
-            <CatalogTableRow
-              key={`${t.path}#${t.name}`}
-              index={displayIndex + 1}
-              entry={t}
-              disabled={!onSaveTableMeta || savingTablePath === t.path}
-              onOpen={() => onOpenTable(t)}
-              onSave={
-                onSaveTableMeta
-                  ? (next) => onSaveTableMeta(t, next)
-                  : async () => {}
-              }
-            />
-          ))}
-          {filteredTables.length === 0 && (
-            <tr>
-              <td colSpan={5} className="catalog-empty">
-                {tables.length === 0 ? '当前目录下没有 table' : '没有匹配的 table'}
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
-    </div>
+        )}
+      </tbody>
+    </ResizableColumnTable>
   );
 
   return (

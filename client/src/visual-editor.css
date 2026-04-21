@@ -472,6 +472,11 @@ textarea.visual-textarea.visual-textarea--expandable.visual-textarea--sm.is-focu
     minmax(0, 1fr);
 }
 
+/* 与 useResizableGridWeights 配合：列宽由内联 style.gridTemplateColumns 设置 */
+.visual-resizable-fields-grid {
+  min-width: 0;
+}
+
 /* ---------------- Table-like list header ---------------- */
 .visual-list-header {
   display: flex;
@@ -509,6 +514,36 @@ textarea.visual-textarea.visual-textarea--expandable.visual-textarea--sm.is-focu
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.visual-list-header-cell--resizable {
+  position: relative;
+  padding-right: 10px;
+}
+
+.resizable-col-handle--grid {
+  position: absolute;
+  right: -2px;
+  top: 0;
+  bottom: 0;
+  width: 10px;
+  z-index: 2;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.resizable-col-handle--grid::after {
+  content: '';
+  position: absolute;
+  right: 4px;
+  top: 10%;
+  bottom: 10%;
+  width: 1px;
+  background: var(--border-color);
+}
+
+.resizable-col-handle--grid:hover::after {
+  background: var(--primary);
 }
 
 .visual-list-header-action {

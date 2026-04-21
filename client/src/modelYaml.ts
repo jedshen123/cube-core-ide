@@ -225,6 +225,152 @@ export function extractViewsFromText(text: string):
   }
 }
 
+export type ImportSplitWrite = {
+  path: string;
+  yaml: string;
+  kind: 'cube' | 'view' | 'table';
+};
+
+function importItemName(rec: Record<string, unknown>, i: number, kind: 'cube' | 'view' | 'table'): string {
+  const raw = rec.name;
+  if (typeof raw === 'string' && raw.trim()) return raw.trim();
+  return `${kind}_${i + 1}`;
+}
+
+/**
+ * 从单份 YAML 中解析 cubes / views / table(s)，按每条记录的 `name` 拆成多文件
+ *（cubes/、views/、tables/ 下各一个 .yml）。同一次导入内重名会自动加 _2、_3。
+ * 同一条目若被多种解析同时命中（如根节点同时符合 table 与宽松 cube），优先保留为 table，再 view，再 cube。
+ */
+export function buildImportSplitWrites(text: string): ImportSplitWrite[] | { error: string } {
+  const cubesR = extractCubesFromText(text);
+  const viewsR = extractViewsFromText(text);
+  const tablesR = extractTablesFromText(text);
+
+  const claimed = new WeakSet<Record<string, unknown>>();
+  const usedPaths = new Set<string>();
+  const writes: ImportSplitWrite[] = [];
+
+  const allocPath = (dir: 'cubes' | 'views' | 'tables', baseName: string, fallback: string) => {
+    let stem = sanitizeFilename(baseName, fallback);
+    let rel = `${dir}/${stem}.yml`;
+    if (!usedPaths.has(rel)) {
+      usedPaths.add(rel);
+      return rel;
+    }
+    let n = 2;
+    while (usedPaths.has(`${dir}/${stem}_${n}.yml`)) n += 1;
+    rel = `${dir}/${stem}_${n}.yml`;
+    usedPaths.add(rel);
+    return rel;
+  };
+
+  const tables = tablesR.ok ? tablesR.tables : [];
+  const views = viewsR.ok ? viewsR.views : [];
+  const cubes = cubesR.ok ? cubesR.cubes : [];
+
+  for (let i = 0; i < tables.length; i++) {
+    const table = tables[i];
+    claimed.add(table);
+    const path = allocPath('tables', importItemName(table, i, 'table'), 'table');
+    writes.push({ kind: 'table', path, yaml: stringifyDoc({ table }) });
+  }
+
+  for (let i = 0; i < views.length; i++) {
+    const view = views[i];
+    if (claimed.has(view)) continue;
+    claimed.add(view);
+    const path = allocPath('views', importItemName(view, i, 'view'), 'view');
+    writes.push({ kind: 'view', path, yaml: stringifyDoc({ views: [view] }) });
+  }
+
+  for (let i = 0; i < cubes.length; i++) {
+    const cube = cubes[i];
+    if (claimed.has(cube)) continue;
+    claimed.add(cube);
+    const path = allocPath('cubes', importItemName(cube, i, 'cube'), 'cube');
+    writes.push({ kind: 'cube', path, yaml: stringifyDoc({ cubes: [cube] }) });
+  }
+
+  if (writes.length > 0) return writes;
+
+  const parts: string[] = [];
+  if (!cubesR.ok) parts.push(`cube: ${cubesR.error}`);
+  if (!viewsR.ok) parts.push(`view: ${viewsR.error}`);
+  if (!tablesR.ok) parts.push(`table: ${tablesR.error}`);
+  return {
+    error:
+      parts.length > 0
+        ? `未能解析出可导入内容（${parts.join('；')}）`
+        : '未在文件中发现 cubes、views 或 table(s) 定义',
+  };
+}
+
+/** 按目录列表顺序去重 path（保留首次出现顺序）。 */
+export function uniquePathsInOrder(entries: { path: string }[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const e of entries) {
+    if (!seen.has(e.path)) {
+      seen.add(e.path);
+      out.push(e.path);
+    }
+  }
+  return out;
+}
+
+/** 从已解析的根对象中取出 cube 条目（`cubes` 数组或单个 `cube`）。 */
+export function collectCubeRecordsFromYamlRoot(doc: Record<string, unknown>): Record<string, unknown>[] {
+  if (Array.isArray(doc.cubes)) {
+    return (doc.cubes as unknown[])
+      .filter((x) => x && typeof x === 'object')
+      .map((x) => x as Record<string, unknown>);
+  }
+  if (doc.cube && typeof doc.cube === 'object' && !Array.isArray(doc.cube)) {
+    return [doc.cube as Record<string, unknown>];
+  }
+  return [];
+}
+
+/** 从已解析的根对象中取出 view 条目（`views` 数组或单个 `view`）。 */
+export function collectViewRecordsFromYamlRoot(doc: Record<string, unknown>): Record<string, unknown>[] {
+  if (Array.isArray(doc.views)) {
+    return (doc.views as unknown[])
+      .filter((x) => x && typeof x === 'object')
+      .map((x) => x as Record<string, unknown>);
+  }
+  if (doc.view && typeof doc.view === 'object' && !Array.isArray(doc.view)) {
+    return [doc.view as Record<string, unknown>];
+  }
+  return [];
+}
+
+/** 从已解析的根对象中取出 table 条目（`tables` 数组或单个 `table`）。 */
+export function collectTableRecordsFromYamlRoot(doc: Record<string, unknown>): Record<string, unknown>[] {
+  const out: Record<string, unknown>[] = [];
+  if (Array.isArray(doc.tables)) {
+    for (const t of doc.tables) {
+      if (t && typeof t === 'object') out.push(t as Record<string, unknown>);
+    }
+  } else if (doc.table && typeof doc.table === 'object' && !Array.isArray(doc.table)) {
+    out.push(doc.table as Record<string, unknown>);
+  }
+  return out;
+}
+
+/** 合并为一份可被 buildImportSplitWrites 再拆分的根文档。 */
+export function stringifyExportBundle(parts: {
+  cubes: Record<string, unknown>[];
+  views: Record<string, unknown>[];
+  tables: Record<string, unknown>[];
+}): string {
+  const root: Record<string, unknown> = {};
+  if (parts.cubes.length) root.cubes = parts.cubes;
+  if (parts.views.length) root.views = parts.views;
+  if (parts.tables.length) root.tables = parts.tables;
+  return stringifyDoc(root);
+}
+
 /** 触发浏览器下载一段文本到本地。 */
 export function downloadTextFile(filename: string, text: string): void {
   const blob = new Blob([text], { type: 'text/yaml;charset=utf-8' });
