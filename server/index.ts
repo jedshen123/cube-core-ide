@@ -12,6 +12,10 @@ import mysql from "mysql2/promise";
 const PORT = Number(process.env.PORT) || 4001;
 const HOST = process.env.HOST || "0.0.0.0";
 const HOT_RELOAD_DIR = process.env.CUBE_HOT_RELOAD_DIR || path.resolve(process.cwd(), "../demo-models");
+/** Physical root for table YAML files. API paths still use the virtual prefix `tables/`. */
+const TABLE_HOT_RELOAD_DIR =
+  process.env.TABLE_HOT_RELOAD_DIR || path.join(HOT_RELOAD_DIR, "tables");
+const LEGACY_TABLES_UNDER_CUBE_DIR = path.join(HOT_RELOAD_DIR, "tables");
 
 // StarRocks connection config (read from env at request time so that
 // dotenv / runtime changes are picked up without restart).
@@ -68,6 +72,38 @@ async function scanYamlFiles(dir: string): Promise<string[]> {
   return results.sort();
 }
 
+/** Scan `dir` but do not descend into `skipSubtree` (resolved paths must match). */
+async function scanYamlFilesSkipSubtree(dir: string, skipSubtree: string): Promise<string[]> {
+  const results: string[] = [];
+  const skipAbs = path.resolve(skipSubtree);
+  async function walk(current: string) {
+    if (path.resolve(current) === skipAbs) return;
+    let entries: fsSync.Dirent[];
+    try {
+      entries = await fs.readdir(current, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const fullPath = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        await walk(fullPath);
+      } else if (entry.isFile() && (entry.name.endsWith(".yml") || entry.name.endsWith(".yaml"))) {
+        results.push(fullPath);
+      }
+    }
+  }
+  await walk(dir);
+  return results.sort();
+}
+
+/** Cubes/views under the model dir plus all table YAMLs under {@link TABLE_HOT_RELOAD_DIR}. */
+async function listAllTrackedYamlFiles(): Promise<string[]> {
+  const cubesAndViews = await scanYamlFilesSkipSubtree(HOT_RELOAD_DIR, LEGACY_TABLES_UNDER_CUBE_DIR);
+  const tables = await scanYamlFiles(TABLE_HOT_RELOAD_DIR);
+  return [...cubesAndViews, ...tables].sort();
+}
+
 async function detectFileType(filePath: string): Promise<FileInfo["type"]> {
   // Path-based hint takes precedence for empty / work-in-progress files
   const rel = toRelative(filePath).replace(/\\/g, "/");
@@ -93,27 +129,56 @@ async function detectFileType(filePath: string): Promise<FileInfo["type"]> {
   return pathHint ?? "unknown";
 }
 
+function pathIsUnderOrEqual(child: string, parent: string) {
+  const c = path.resolve(child);
+  const p = path.resolve(parent);
+  if (c === p) return true;
+  const rel = path.relative(p, c);
+  return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
+}
+
 function toRelative(filePath: string) {
-  return path.relative(HOT_RELOAD_DIR, filePath);
+  const abs = path.resolve(filePath);
+  const tableRoot = path.resolve(TABLE_HOT_RELOAD_DIR);
+  if (pathIsUnderOrEqual(abs, tableRoot)) {
+    const rest = path.relative(tableRoot, abs).replace(/\\/g, "/");
+    return rest ? `tables/${rest}` : "tables";
+  }
+  return path.relative(HOT_RELOAD_DIR, filePath).replace(/\\/g, "/");
 }
 
 function fromRelative(rel: string) {
   const safe = rel.replace(/\.\./g, "").replace(/\\/g, "/");
-  return path.resolve(HOT_RELOAD_DIR, safe);
+  if (safe === "tables" || safe.startsWith("tables/")) {
+    const rest = safe === "tables" ? "" : safe.slice("tables/".length);
+    const resolved = path.resolve(TABLE_HOT_RELOAD_DIR, rest);
+    if (!pathIsUnderOrEqual(resolved, TABLE_HOT_RELOAD_DIR)) {
+      throw new Error("path escapes TABLE_HOT_RELOAD_DIR");
+    }
+    return resolved;
+  }
+  const resolved = path.resolve(HOT_RELOAD_DIR, safe);
+  if (!pathIsUnderOrEqual(resolved, HOT_RELOAD_DIR)) {
+    throw new Error("path escapes CUBE_HOT_RELOAD_DIR");
+  }
+  return resolved;
 }
 
 // Ensure hot reload dir exists, pre-create conventional sub-folders
 if (!fsSync.existsSync(HOT_RELOAD_DIR)) {
   fsSync.mkdirSync(HOT_RELOAD_DIR, { recursive: true });
 }
-for (const sub of ["cubes", "views", "tables"]) {
+for (const sub of ["cubes", "views"]) {
   const p = path.join(HOT_RELOAD_DIR, sub);
   if (!fsSync.existsSync(p)) fsSync.mkdirSync(p, { recursive: true });
+}
+if (!fsSync.existsSync(TABLE_HOT_RELOAD_DIR)) {
+  fsSync.mkdirSync(TABLE_HOT_RELOAD_DIR, { recursive: true });
 }
 
 // API: list files
 app.get("/api/files", async (_req, res) => {
-  const files = await scanYamlFiles(HOT_RELOAD_DIR);
+  const files = await listAllTrackedYamlFiles();
   const infos: FileInfo[] = await Promise.all(
     files.map(async (f) => ({
       path: toRelative(f),
@@ -175,7 +240,7 @@ function asString(v: unknown): string {
 
 // API: unified catalog (parsed metadata for all cubes/views/tables)
 app.get("/api/catalog", async (_req, res) => {
-  const files = await scanYamlFiles(HOT_RELOAD_DIR);
+  const files = await listAllTrackedYamlFiles();
   const out: CatalogResponse = { cubes: [], views: [], tables: [], errors: [] };
 
   await Promise.all(
@@ -393,7 +458,7 @@ function toTableYamlDoc(info: StarRocksTableInfo): Record<string, unknown> {
 }
 
 async function listExistingTableNames(): Promise<Set<string>> {
-  const files = await scanYamlFiles(HOT_RELOAD_DIR);
+  const files = await scanYamlFiles(TABLE_HOT_RELOAD_DIR);
   const names = new Set<string>();
   await Promise.all(
     files.map(async (f) => {
@@ -446,8 +511,7 @@ app.post("/api/starrocks/sync", async (_req, res) => {
     return;
   }
 
-  const tablesDir = path.join(HOT_RELOAD_DIR, "tables");
-  await fs.mkdir(tablesDir, { recursive: true });
+  await fs.mkdir(TABLE_HOT_RELOAD_DIR, { recursive: true });
 
   const added: { name: string; path: string; fields: number }[] = [];
   const skipped: { name: string; reason: string }[] = [];
@@ -469,7 +533,7 @@ app.post("/api/starrocks/sync", async (_req, res) => {
     const doc = toTableYamlDoc(info);
     const yamlText = YAML.stringify(doc, { indent: 2, lineWidth: 0 });
     const fileName = `${info.name}.yml`;
-    const filePath = path.join(tablesDir, fileName);
+    const filePath = path.join(TABLE_HOT_RELOAD_DIR, fileName);
 
     if (fsSync.existsSync(filePath)) {
       skipped.push({ name: info.name, reason: `目标文件已存在：tables/${fileName}` });
@@ -541,7 +605,14 @@ app.delete("/api/files/*", async (req, res) => {
 });
 
 // File watcher + WebSocket broadcast
-const watcher = chokidar.watch([`${HOT_RELOAD_DIR}/**/*.yml`, `${HOT_RELOAD_DIR}/**/*.yaml`], {
+const watcher = chokidar.watch(
+  [
+    `${HOT_RELOAD_DIR}/**/*.yml`,
+    `${HOT_RELOAD_DIR}/**/*.yaml`,
+    `${TABLE_HOT_RELOAD_DIR}/**/*.yml`,
+    `${TABLE_HOT_RELOAD_DIR}/**/*.yaml`,
+  ],
+  {
   ignored: /node_modules/,
   persistent: true,
   ignoreInitial: true,
@@ -564,5 +635,6 @@ watcher
 
 httpServer.listen(PORT, HOST, () => {
   console.log(`Cube Core IDE server listening on http://${HOST}:${PORT}`);
-  console.log(`Hot reload dir: ${HOT_RELOAD_DIR}`);
+  console.log(`Cube models dir (CUBE_HOT_RELOAD_DIR): ${HOT_RELOAD_DIR}`);
+  console.log(`Table YAML dir (TABLE_HOT_RELOAD_DIR): ${TABLE_HOT_RELOAD_DIR}`);
 });

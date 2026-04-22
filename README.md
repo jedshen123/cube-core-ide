@@ -40,6 +40,8 @@ This starts both:
 - **Backend** on `http://localhost:4001`
 - **Frontend** on `http://localhost:5173`
 
+The Vite dev server uses **`VITE_PORT`** (or **`CLIENT_PORT`**) for its listen port — not `PORT`, which is reserved for the API server. If `PORT` is set in your environment (e.g. `PORT=4001`), sharing it with Vite used to steal the backend port and produce **`ws proxy error … ECONNREFUSED`** until the mismatch was fixed.
+
 ### 3. Open in browser
 
 Navigate to: **http://localhost:5173**
@@ -50,6 +52,13 @@ By default, the server watches `/Users/lute/code/cube-core-ide/demo-models`. To 
 
 ```bash
 CUBE_HOT_RELOAD_DIR=/path/to/your/models npm run dev
+```
+
+Table YAML files live in a separate directory controlled by **`TABLE_HOT_RELOAD_DIR`** (defaults to `<CUBE_HOT_RELOAD_DIR>/tables` when unset). The HTTP API still exposes them under the virtual path prefix `tables/` so the client does not need to change.
+
+```bash
+CUBE_HOT_RELOAD_DIR=/path/to/your/models \
+TABLE_HOT_RELOAD_DIR=/path/to/your/table-yaml npm run dev
 ```
 
 Or modify the `dev:server` script in `package.json`.
