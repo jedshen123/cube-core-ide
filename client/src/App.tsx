@@ -6,6 +6,7 @@ import type {
   CatalogResponse,
   CubeCatalogEntry,
   FileInfo,
+  MeasureCatalogEntry,
   TableCatalogEntry,
   ViewCatalogEntry,
 } from './api';
@@ -72,7 +73,7 @@ function App() {
   const [savingTablePath, setSavingTablePath] = useState<string | null>(null);
   const [previewCollapsed, setPreviewCollapsed] = useState(true);
   /** 新建未落盘：无路径，保存时按 YAML 中 name 写入 cubes|views|tables/&lt;name&gt;.yml */
-  const [newDraft, setNewDraft] = useState<{ kind: CatalogSection } | null>(null);
+  const [newDraft, setNewDraft] = useState<{ kind: 'cube' | 'view' | 'table' } | null>(null);
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const hotReloadTimerRef = useRef<number | null>(null);
@@ -272,6 +273,10 @@ function App() {
   const handleOpenTable = (entry: TableCatalogEntry) => {
     setSection('table');
     openFile(entry.path);
+  };
+  const handleOpenMeasure = (entry: MeasureCatalogEntry) => {
+    setSection('measure');
+    openFile(entry.path, { cubeIndex: entry.cubeIndex });
   };
 
   /** Table 详情：用当前 YAML 预填 Cube；若已有 Cube 的 sql_table/name 与表英文名一致则提示跳转 */
@@ -475,8 +480,8 @@ function App() {
     }
   };
 
-  const startNewDraft = (kind: CatalogSection) => {
-    const templates: Record<CatalogSection, string> = {
+  const startNewDraft = (kind: 'cube' | 'view' | 'table') => {
+    const templates: Record<'cube' | 'view' | 'table', string> = {
       cube: `cubes:\n  - name: \n`,
       view: `views:\n  - name: \n`,
       table: `table:\n  name: \n  fields: []\n`,
@@ -504,7 +509,7 @@ function App() {
     setCreateModalOpen(true);
   };
 
-  const chooseCreateKind = (kind: CatalogSection) => {
+  const chooseCreateKind = (kind: 'cube' | 'view' | 'table') => {
     setCreateModalOpen(false);
     startNewDraft(kind);
   };
@@ -696,17 +701,21 @@ function App() {
   const cubeCount = catalog?.cubes.length ?? 0;
   const viewCount = catalog?.views.length ?? 0;
   const tableCount = catalog?.tables.length ?? 0;
+  const measureCount = catalog?.measures.length ?? 0;
 
   /** 列表页按 section；详情页按当前文件类型，避免打开条目后左栏分类失去高亮 */
   const sidebarCubeActive =
     (viewMode === 'catalog' && section === 'cube') ||
-    (viewMode === 'detail' && effectiveFileType === 'cube');
+    (viewMode === 'detail' && effectiveFileType === 'cube' && section !== 'measure');
   const sidebarViewActive =
     (viewMode === 'catalog' && section === 'view') ||
     (viewMode === 'detail' && effectiveFileType === 'view');
   const sidebarTableActive =
     (viewMode === 'catalog' && section === 'table') ||
     (viewMode === 'detail' && effectiveFileType === 'table');
+  const sidebarMeasureActive =
+    (viewMode === 'catalog' && section === 'measure') ||
+    (viewMode === 'detail' && section === 'measure');
 
   const handleSelectSection = (s: CatalogSection) => {
     setSection(s);
@@ -783,6 +792,15 @@ function App() {
             <span className="sidebar-nav-label">Tables</span>
             <span className="sidebar-nav-count">{tableCount}</span>
           </button>
+          <button
+            type="button"
+            className={`sidebar-nav-item ${sidebarMeasureActive ? 'active' : ''}`}
+            onClick={() => handleSelectSection('measure')}
+          >
+            <span className="sidebar-nav-icon">📊</span>
+            <span className="sidebar-nav-label">Measures</span>
+            <span className="sidebar-nav-count">{measureCount}</span>
+          </button>
         </nav>
         {viewMode === 'detail' && (activePath || newDraft) && (
           <div className="sidebar-current">
@@ -822,6 +840,7 @@ function App() {
             onOpenCube={handleOpenCube}
             onOpenView={handleOpenView}
             onOpenTable={handleOpenTable}
+            onOpenMeasure={handleOpenMeasure}
             onRefresh={refreshCatalog}
             onSyncTables={syncTablesFromStarRocks}
             syncing={syncingTables}

@@ -1115,6 +1115,42 @@ textarea.catalog-inline-input.catalog-inline-textarea {
   color: var(--text-secondary);
 }
 
+/* Measures 列表样式 */
+.catalog-measure-name-btn {
+  all: unset;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 13px;
+  color: var(--primary);
+  transition: color 0.12s, text-decoration 0.12s;
+}
+
+.catalog-measure-name-btn:hover {
+  text-decoration: underline;
+}
+
+.catalog-name--cube {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.catalog-type-badge {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: var(--mb-color-brand-faint, #eef2ff);
+  color: var(--primary);
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
 .catalog-tags {
   display: flex;
   flex-wrap: wrap;

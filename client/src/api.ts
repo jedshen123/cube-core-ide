@@ -41,10 +41,20 @@ export interface TableCatalogEntry {
   fieldCount: number;
 }
 
+export interface MeasureCatalogEntry {
+  path: string;
+  cubeIndex: number;
+  cubeName: string;
+  name: string;
+  title: string;
+  type: string;
+}
+
 export interface CatalogResponse {
   cubes: CubeCatalogEntry[];
   views: ViewCatalogEntry[];
   tables: TableCatalogEntry[];
+  measures: MeasureCatalogEntry[];
   errors: { path: string; error: string }[];
 }
 

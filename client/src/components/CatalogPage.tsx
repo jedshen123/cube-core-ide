@@ -4,11 +4,12 @@ import { ResizableColumnTable } from './ResizableColumnTable';
 import type {
   CatalogResponse,
   CubeCatalogEntry,
+  MeasureCatalogEntry,
   TableCatalogEntry,
   ViewCatalogEntry,
 } from '../api';
 
-export type CatalogSection = 'cube' | 'view' | 'table';
+export type CatalogSection = 'cube' | 'view' | 'table' | 'measure';
 
 type Props = {
   catalog: CatalogResponse | null;
@@ -19,6 +20,7 @@ type Props = {
   onOpenCube: (entry: CubeCatalogEntry) => void;
   onOpenView: (entry: ViewCatalogEntry) => void;
   onOpenTable: (entry: TableCatalogEntry) => void;
+  onOpenMeasure: (entry: MeasureCatalogEntry) => void;
   onRefresh: () => void;
   onSyncTables?: () => void;
   syncing?: boolean;
@@ -126,6 +128,7 @@ export function CatalogPage({
   onOpenCube,
   onOpenView,
   onOpenTable,
+  onOpenMeasure,
   onRefresh,
   onSyncTables,
   syncing = false,
@@ -137,15 +140,31 @@ export function CatalogPage({
   const cubes = catalog?.cubes ?? [];
   const views = catalog?.views ?? [];
   const tables = catalog?.tables ?? [];
+  const measures = catalog?.measures ?? [];
 
   const filteredCubes = useMemo(() => cubes.filter((c) => matches(c, query)), [cubes, query]);
   const filteredViews = useMemo(() => views.filter((v) => matches(v, query)), [views, query]);
   const filteredTables = useMemo(() => tables.filter((t) => matches(t, query)), [tables, query]);
+  const filteredMeasures = useMemo(
+    () =>
+      measures.filter((m) => {
+        if (!query) return true;
+        const needle = query.toLowerCase();
+        return (
+          m.name.toLowerCase().includes(needle) ||
+          m.cubeName.toLowerCase().includes(needle) ||
+          m.title.toLowerCase().includes(needle) ||
+          m.type.toLowerCase().includes(needle)
+        );
+      }),
+    [measures, query]
+  );
 
   const counts = {
     cube: cubes.length,
     view: views.length,
     table: tables.length,
+    measure: measures.length,
   } as const;
 
   const renderCubes = () => (
@@ -282,6 +301,58 @@ export function CatalogPage({
     </ResizableColumnTable>
   );
 
+  const renderMeasures = () => (
+    <ResizableColumnTable
+      storageKey="cube-core-ide.catalog.measures.v1"
+      columns={[
+        { id: 'idx', header: '序号', thClassName: 'catalog-th-index' },
+        { id: 'name', header: 'Name' },
+        { id: 'cube', header: '归属 Cube' },
+        { id: 'title', header: 'Title' },
+        { id: 'type', header: 'Type' },
+      ]}
+      defaultPercents={[6, 22, 22, 30, 20]}
+      minPercents={[4, 12, 12, 10, 8]}
+    >
+      <tbody>
+        {filteredMeasures.map((m, displayIndex) => (
+          <tr
+            key={`${m.path}#${m.cubeIndex}#${m.name}`}
+            className="catalog-row"
+            title="点击跳转到对应的 Cube 查看该 Measure"
+          >
+            <td className="catalog-td-index num">{displayIndex + 1}</td>
+            <td className="catalog-td-name-en">
+              <button
+                type="button"
+                className="catalog-measure-name-btn"
+                onClick={() => onOpenMeasure(m)}
+              >
+                <span className="catalog-icon">📊</span>
+                {dash(m.name)}
+              </button>
+            </td>
+            <td>
+              <span className="catalog-name catalog-name--cube">
+                <span className="catalog-icon">🧊</span>
+                {dash(m.cubeName)}
+              </span>
+            </td>
+            <td>{dash(m.title)}</td>
+            <td><span className="catalog-type-badge">{dash(m.type)}</span></td>
+          </tr>
+        ))}
+        {filteredMeasures.length === 0 && (
+          <tr>
+            <td colSpan={5} className="catalog-empty">
+              {measures.length === 0 ? '当前目录下没有 measure' : '没有匹配的 measure'}
+            </td>
+          </tr>
+        )}
+      </tbody>
+    </ResizableColumnTable>
+  );
+
   return (
     <div className="catalog-page">
       <div className="catalog-header">
@@ -312,6 +383,15 @@ export function CatalogPage({
             onClick={() => onSectionChange('table')}
           >
             Tables <span className="catalog-count">{counts.table}</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={section === 'measure'}
+            className={`catalog-tab ${section === 'measure' ? 'active' : ''}`}
+            onClick={() => onSectionChange('measure')}
+          >
+            Measures <span className="catalog-count">{counts.measure}</span>
           </button>
         </div>
         <div className="catalog-header-right">
@@ -344,6 +424,7 @@ export function CatalogPage({
         {section === 'cube' && renderCubes()}
         {section === 'view' && renderViews()}
         {section === 'table' && renderTables()}
+        {section === 'measure' && renderMeasures()}
       </div>
 
       {catalog && catalog.errors.length > 0 && (

@@ -225,10 +225,20 @@ interface TableCatalogEntry {
   fieldCount: number;
 }
 
+interface MeasureCatalogEntry {
+  path: string;
+  cubeIndex: number;
+  cubeName: string;
+  name: string;
+  title: string;
+  type: string;
+}
+
 interface CatalogResponse {
   cubes: CubeCatalogEntry[];
   views: ViewCatalogEntry[];
   tables: TableCatalogEntry[];
+  measures: MeasureCatalogEntry[];
   errors: { path: string; error: string }[];
 }
 
@@ -241,7 +251,7 @@ function asString(v: unknown): string {
 // API: unified catalog (parsed metadata for all cubes/views/tables)
 app.get("/api/catalog", async (_req, res) => {
   const files = await listAllTrackedYamlFiles();
-  const out: CatalogResponse = { cubes: [], views: [], tables: [], errors: [] };
+  const out: CatalogResponse = { cubes: [], views: [], tables: [], measures: [], errors: [] };
 
   await Promise.all(
     files.map(async (f) => {
@@ -263,6 +273,24 @@ app.get("/api/catalog", async (_req, res) => {
       }
       if (!doc || typeof doc !== "object") return;
 
+      const extractCubeMeasures = (c: any, i: number) => {
+        if (!c || typeof c !== "object") return;
+        const cubeName = asString(c.name);
+        if (Array.isArray(c.measures)) {
+          c.measures.forEach((m: any) => {
+            if (!m || typeof m !== "object") return;
+            out.measures.push({
+              path: rel,
+              cubeIndex: i,
+              cubeName,
+              name: asString(m.name),
+              title: asString(m.title),
+              type: asString(m.type),
+            });
+          });
+        }
+      };
+
       if (Array.isArray(doc.cubes)) {
         doc.cubes.forEach((c: any, i: number) => {
           if (!c || typeof c !== "object") return;
@@ -276,6 +304,7 @@ app.get("/api/catalog", async (_req, res) => {
             sql_table: asString(c.sql_table),
             extends: asString(c.extends),
           });
+          extractCubeMeasures(c, i);
         });
       } else if (doc.cube && typeof doc.cube === "object") {
         const c = doc.cube;
@@ -289,6 +318,7 @@ app.get("/api/catalog", async (_req, res) => {
           sql_table: asString(c.sql_table),
           extends: asString(c.extends),
         });
+        extractCubeMeasures(c, 0);
       }
 
       if (Array.isArray(doc.views)) {
@@ -353,6 +383,7 @@ app.get("/api/catalog", async (_req, res) => {
   out.cubes.sort(byName);
   out.views.sort(byName);
   out.tables.sort(byName);
+  out.measures.sort((a, b) => a.cubeName.localeCompare(b.cubeName) || a.name.localeCompare(b.name));
 
   res.json(out);
 });
