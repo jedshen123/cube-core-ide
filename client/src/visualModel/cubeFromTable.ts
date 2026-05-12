@@ -58,7 +58,7 @@ export function buildCubeYamlFromTableContent(tableContent: string):
   const measures = numberFields.map((f) => {
     const col = f.name.trim();
     const measure: Record<string, unknown> = {
-      name: col,
+      name: `m_${col}`,
       type: 'sum',
       sql: `{CUBE}.${col}`,
     };
