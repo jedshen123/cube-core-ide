@@ -33,6 +33,8 @@ export function buildCubeYamlFromTableContent(tableContent: string):
   const enName = form.name.trim();
   if (!enName) return { ok: false, error: '表英文名为空，无法生成 Cube' };
 
+  const tableDesc = form.description.trim();
+
   const dimensions = form.fields
     .filter((f) => f.name.trim())
     .map((f) => {
@@ -50,14 +52,34 @@ export function buildCubeYamlFromTableContent(tableContent: string):
       return dim;
     });
 
+  const numberFields = form.fields.filter(
+    (f) => f.name.trim() && inferCubeDimensionType(f.data_type) === 'number'
+  );
+  const measures = numberFields.map((f) => {
+    const col = f.name.trim();
+    const measure: Record<string, unknown> = {
+      name: col,
+      type: 'sum',
+      sql: `{CUBE}.${col}`,
+    };
+    const title = f.title.trim();
+    if (title) measure.title = title;
+    const fieldDesc = f.description.trim();
+    if (fieldDesc) {
+      measure.description = fieldDesc;
+      measure.meta = { ai_context: fieldDesc };
+    }
+    return measure;
+  });
+
   const cube: Record<string, unknown> = {
     name: enName,
     title: form.title.trim() || enName,
     sql_table: enName,
   };
-  const desc = form.description.trim();
-  if (desc) cube.description = desc;
+  if (tableDesc) cube.description = tableDesc;
   cube.dimensions = dimensions;
+  if (measures.length > 0) cube.measures = measures;
 
   return { ok: true, yaml: stringifyDoc({ cubes: [cube] }), tableEnName: enName };
 }
